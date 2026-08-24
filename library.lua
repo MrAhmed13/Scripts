@@ -2326,10 +2326,14 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		Parent = column,
 	})
 
+	-- The card height is driven explicitly (header + body) rather than by
+	-- AutomaticSize: AutomaticSize grows to fit a child but will not reliably
+	-- shrink to follow a ClipsDescendants child that collapses, which left
+	-- collapsed cards stuck at full height. The body height is mirrored from
+	-- the content below and the collapse animation tweens it to the header.
 	local frame = New("Frame", {
 		Name = "Card",
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 38),
 		BackgroundColor3 = Library.Scheme.Surface,
 		BorderSizePixel = 0,
 		ClipsDescendants = false,
@@ -2341,17 +2345,6 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 	local cardScale = Scale(frame, 1)
 	local cardStroke = Stroke(frame, Library.Scheme.Outline, 1, 0)
 	Library:Register(cardStroke, "Color", "Outline")
-
-	-- Wrapper so the layout measures the card while the card itself is free to
-	-- slide during the cascade animation.
-	local wrapper = New("Frame", {
-		Name = "CardWrap",
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
-		Parent = column,
-	})
-	frame.Parent = wrapper
 
 	if owningTab then
 		table.insert(owningTab.Cards, { Frame = frame, Scale = cardScale })
@@ -2434,6 +2427,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		contentHeight = container.AbsoluteSize.Y
 		if not collapsed then
 			clipper.Size = UDim2.new(1, -22, 0, contentHeight)
+			frame.Size = UDim2.new(1, 0, 0, 38 + contentHeight)
 		end
 	end)
 
@@ -2454,9 +2448,11 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		collapsed = state
 		if state then
 			Tween(clipper, Anim.Smooth, { Size = UDim2.new(1, -22, 0, 0) })
+			Tween(frame, Anim.Smooth, { Size = UDim2.new(1, 0, 0, 38) })
 			TweenRaw(chevron, Anim.Smooth, { Rotation = -90 })
 		else
 			Tween(clipper, Anim.Smooth, { Size = UDim2.new(1, -22, 0, contentHeight) })
+			Tween(frame, Anim.Smooth, { Size = UDim2.new(1, 0, 0, 38 + contentHeight) })
 			TweenRaw(chevron, Anim.Smooth, { Rotation = 0 })
 		end
 	end
@@ -2888,27 +2884,35 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		local toggleObj = { Value = value, Type = "Toggle", Instance = row }
 
 		local function paint(on, instant)
+			-- `instant` must snap *every* property, not just the knob slide.
+			-- Otherwise a Default=true toggle paints its colours over a tween
+			-- during the busy first frame and settles a shade off from a toggle
+			-- switched on by hand, which read as "darker" default toggles.
 			local info = Anim.Spring
+			local fast = Anim.Fast
+			local smooth = Anim.Smooth
 			if instant then
 				info = TweenInfo.new(0, Enum.EasingStyle.Linear)
+				fast = info
+				smooth = info
 			end
 			trackGrad.Enabled = on
 
 			if on then
-				Tween(track, Anim.Fast, { BackgroundColor3 = Library.Scheme.Accent })
+				Tween(track, fast, { BackgroundColor3 = Library.Scheme.Accent })
 				TweenRaw(knob, info, { Position = UDim2.new(0, 23, 0.5, 0) })
-				TweenRaw(trackStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0.4 })
-				TweenRaw(ring, Anim.Smooth, { BackgroundTransparency = 0.86 })
+				TweenRaw(trackStroke, fast, { Color = Library.Scheme.Accent, Transparency = 0.4 })
+				TweenRaw(ring, smooth, { BackgroundTransparency = 0.86 })
 				if knobTick:IsA("ImageLabel") then
-					TweenRaw(knobTick, Anim.Fast, { ImageTransparency = 0, ImageColor3 = Library.Scheme.Accent })
+					TweenRaw(knobTick, fast, { ImageTransparency = 0, ImageColor3 = Library.Scheme.Accent })
 				end
 			else
-				Tween(track, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+				Tween(track, fast, { BackgroundColor3 = Library.Scheme.Element })
 				TweenRaw(knob, info, { Position = UDim2.new(0, 3, 0.5, 0) })
-				TweenRaw(trackStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
-				TweenRaw(ring, Anim.Fast, { BackgroundTransparency = 1 })
+				TweenRaw(trackStroke, fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+				TweenRaw(ring, fast, { BackgroundTransparency = 1 })
 				if knobTick:IsA("ImageLabel") then
-					TweenRaw(knobTick, Anim.Fast, { ImageTransparency = 1 })
+					TweenRaw(knobTick, fast, { ImageTransparency = 1 })
 				end
 			end
 			if not instant then
@@ -3058,10 +3062,14 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			Parent = row,
 		})
 
+		-- The track is inset by the knob's radius on each side so the round knob
+		-- stays fully inside the card at the min/max ends instead of spilling
+		-- past the groupbox's clip boundary. readMouse() uses the track's own
+		-- AbsoluteSize/Position, so the 0..1 ratio still maps to the visible bar.
 		local track = New("Frame", {
 			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 0, 0.5, 0),
-			Size = UDim2.new(1, 0, 0, 6),
+			Position = UDim2.new(0, 7, 0.5, 0),
+			Size = UDim2.new(1, -14, 0, 6),
 			BackgroundColor3 = Library.Scheme.Element,
 			BorderSizePixel = 0,
 			Parent = hit,
@@ -3141,7 +3149,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
 				dragging = true
 				TweenRaw(knobScale, Anim.Spring, { Scale = 1.35 })
-				TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, 0, 0, 8) })
+				TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 8) })
 				readMouse()
 			end
 		end)
@@ -3150,7 +3158,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
 				if dragging then
 					TweenRaw(knobScale, Anim.Spring, { Scale = 1 })
-					TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, 0, 0, 6) })
+					TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 6) })
 				end
 				dragging = false
 			end
@@ -3710,11 +3718,22 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			local px = button.AbsolutePosition.X
 			local py = button.AbsolutePosition.Y + button.AbsoluteSize.Y + 6
 
-			-- Flip above the field when there is no room below.
+			-- Flip above when the list would spill past the window's bottom edge
+			-- (or the screen's) so it stays visually attached to the panel
+			-- instead of hanging out over the game world below the window.
 			local viewport = ScreenGui.AbsoluteSize
-			if py + h > viewport.Y - 8 then
+			local limitY = viewport.Y - 8
+			local win = button:FindFirstAncestor("VertexWindow")
+			if win then
+				limitY = math.min(limitY, win.AbsolutePosition.Y + win.AbsoluteSize.Y - 8)
+			end
+			if py + h > limitY then
 				py = button.AbsolutePosition.Y - h - 6
 			end
+			if py < 8 then
+				py = 8
+			end
+			px = math.clamp(px, 8, math.max(8, viewport.X - w - 8))
 
 			popupWrap.Position = UDim2.fromOffset(px, py)
 			popupWrap.Size = UDim2.fromOffset(w, 0)
