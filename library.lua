@@ -7,19 +7,7 @@
 	  ╚═══╝  ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 
 	Vertex UI Library — v2.0.0
-	--------------------------
-	A polished, heavily animated UI library for Roblox executors.
-
-	  * 100% native Roblox Instances — zero external dependencies
-	  * Lucide icon set built in (268 curated icons, extendable)
-	  * Layered soft shadows, accent glow, subtle gradients
-	  * Ripples, hover lifts, spring easing, staggered reveals,
-	    cross-faded tab pages, animated popups
-	  * Live theming (every element recolors instantly) + 9 presets
-	  * Config save / load, built-in settings tab, tooltips,
-	    draggable + resizable window, FPS/ping watermark
-
-	See README.md for the full API.
+    Made By Ahmed Gaming
 ]]
 
 local Library = {}
