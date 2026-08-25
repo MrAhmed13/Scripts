@@ -1723,7 +1723,7 @@ end
 		Title = "Daycare Hub",
 		Subtitle = "v1.0",
 		Icon = "baby",                       -- Lucide name shown in the badge
-		Size = UDim2.new(0, 640, 0, 480),
+		Size = UDim2.new(0, 1000, 0, 560),   -- big by default; resizable
 		MinSize = Vector2.new(520, 380),
 		Resizable = true,
 		Center = true,
@@ -1734,7 +1734,7 @@ function Library:CreateWindow(opts)
 
 	local title = opts.Title or "Vertex"
 	local subtitle = opts.Subtitle or "v" .. Library.Version
-	local size = opts.Size or UDim2.new(0, 640, 0, 480)
+	local size = opts.Size or UDim2.new(0, 1000, 0, 560)
 	local iconName = opts.Icon or "zap"
 	local minSize = opts.MinSize or Vector2.new(520, 360)
 	local resizable = opts.Resizable
@@ -4898,7 +4898,7 @@ end
 
 local Presets = {
 	Vertex = {
-		Accent = Color3.fromRGB(255, 0, 0),
+		Accent = Color3.fromRGB(232, 43, 43),
 		Background = Color3.fromRGB(14, 14, 19),
 		Topbar = Color3.fromRGB(19, 19, 26),
 		Surface = Color3.fromRGB(23, 23, 31),
@@ -5537,4 +5537,4 @@ Library.SetToggleKey = function(_, key)
 end
 
 return Library
---hehe
+
