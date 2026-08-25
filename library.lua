@@ -7,7 +7,19 @@
 	  ╚═══╝  ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 
 	Vertex UI Library — v2.0.0
-    Made By Ahmed Gaming
+	--------------------------
+	A polished, heavily animated UI library for Roblox executors.
+
+	  * 100% native Roblox Instances — zero external dependencies
+	  * Lucide icon set built in (268 curated icons, extendable)
+	  * Layered soft shadows, accent glow, subtle gradients
+	  * Ripples, hover lifts, spring easing, staggered reveals,
+	    cross-faded tab pages, animated popups
+	  * Live theming (every element recolors instantly) + 9 presets
+	  * Config save / load, built-in settings tab, tooltips,
+	    draggable + resizable window, FPS/ping watermark
+
+	See README.md for the full API.
 ]]
 
 local Library = {}
@@ -69,8 +81,8 @@ Library.Metrics = {
 
 -- // Default theme -----------------------------------------------------------
 Library.Scheme = {
-	Accent = Color3.fromRGB(137, 122, 255),
-	AccentDim = Color3.fromRGB(92, 80, 190),
+	Accent = Color3.fromRGB(255, 0, 0),
+	AccentDim = Color3.fromRGB(209, 16, 16),
 	Background = Color3.fromRGB(14, 14, 19),
 	Topbar = Color3.fromRGB(19, 19, 26),
 	Surface = Color3.fromRGB(23, 23, 31),
@@ -4886,7 +4898,7 @@ end
 
 local Presets = {
 	Vertex = {
-		Accent = Color3.fromRGB(137, 122, 255),
+		Accent = Color3.fromRGB(255, 0, 0),
 		Background = Color3.fromRGB(14, 14, 19),
 		Topbar = Color3.fromRGB(19, 19, 26),
 		Surface = Color3.fromRGB(23, 23, 31),
