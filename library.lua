@@ -1502,10 +1502,44 @@ end
 
 -- Drag `target` by grabbing `handle`. `onLift` fires when the drag starts and
 -- `onDrop` when it ends, which the window uses to grow its shadow mid-drag.
+-- Motion is eased: the pointer sets a target offset and a per-frame step glides
+-- the window toward it, so dragging feels smooth instead of snapping frame to
+-- frame. The step is only connected while a drag is in flight, so there is no
+-- idle per-frame cost, and it self-disconnects (no leaked connections).
 local function MakeDraggable(handle, target, onLift, onDrop)
+	local DRAG_SPEED = 20 -- higher = snappier follow, lower = floatier
 	local dragging = false
 	local dragStart = Vector3.new()
 	local startPos = target.Position
+	local scaleX, scaleY = startPos.X.Scale, startPos.Y.Scale
+	local tarX, tarY = startPos.X.Offset, startPos.Y.Offset
+	local curX, curY = tarX, tarY
+	local stepConn = nil
+
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+
+	-- Frame-rate independent follow: alpha derived from dt so the feel is the
+	-- same at 30 or 240 fps.
+	local function step(dt)
+		if Library.Unloaded then
+			stopStep()
+			return
+		end
+		local alpha = 1 - math.exp(-dt * DRAG_SPEED)
+		curX = curX + (tarX - curX) * alpha
+		curY = curY + (tarY - curY) * alpha
+		target.Position = UDim2.new(scaleX, curX, scaleY, curY)
+		-- Once the drag has ended and the window has caught up, settle and stop.
+		if not dragging and math.abs(tarX - curX) < 0.5 and math.abs(tarY - curY) < 0.5 then
+			target.Position = UDim2.new(scaleX, tarX, scaleY, tarY)
+			stopStep()
+		end
+	end
 
 	Connect(handle.InputBegan, function(input)
 		local t = input.UserInputType
@@ -1513,17 +1547,15 @@ local function MakeDraggable(handle, target, onLift, onDrop)
 			dragging = true
 			dragStart = input.Position
 			startPos = target.Position
+			scaleX, scaleY = startPos.X.Scale, startPos.Y.Scale
+			tarX, tarY = startPos.X.Offset, startPos.Y.Offset
+			curX, curY = tarX, tarY
 			if onLift then
 				onLift()
 			end
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					if dragging and onDrop then
-						onDrop()
-					end
-					dragging = false
-				end
-			end)
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
 		end
 	end)
 
@@ -1534,12 +1566,22 @@ local function MakeDraggable(handle, target, onLift, onDrop)
 		local t = input.UserInputType
 		if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch then
 			local delta = input.Position - dragStart
-			target.Position = UDim2.new(
-				startPos.X.Scale,
-				startPos.X.Offset + delta.X,
-				startPos.Y.Scale,
-				startPos.Y.Offset + delta.Y
-			)
+			tarX = startPos.X.Offset + delta.X
+			tarY = startPos.Y.Offset + delta.Y
+		end
+	end)
+
+	-- One tracked release handler, instead of a fresh (leaked) connection per
+	-- drag-start like before.
+	Connect(UserInputService.InputEnded, function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			if dragging then
+				dragging = false
+				if onDrop then
+					onDrop()
+				end
+			end
 		end
 	end)
 end
@@ -1551,21 +1593,25 @@ local function MakeResizable(sizeTarget, gripParent, minW, minH, onResize)
 	local grip = New("TextButton", {
 		Name = "ResizeGrip",
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -3, 1, -3),
-		Size = UDim2.fromOffset(16, 16),
-		BackgroundTransparency = 1,
+		Position = UDim2.new(1, -2, 1, -2),
+		Size = UDim2.fromOffset(20, 20),
+		BackgroundColor3 = Library.Scheme.Element,
+		BackgroundTransparency = 1, -- fades in on hover so the handle is findable
 		Text = "",
 		AutoButtonColor = false,
 		ZIndex = 60,
 		Parent = gripParent,
 	})
+	Corner(Library.Radius.Small, grip)
+	Library:Register(grip, "BackgroundColor3", "Element")
 
 	-- Three stacked diagonal ticks, drawn with plain rotated frames.
+	local ticks = {}
 	local i = 1
 	while i <= 3 do
 		local tick = New("Frame", {
 			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.new(1, 0, 1, -(i - 1) * 4),
+			Position = UDim2.new(1, -2, 1, -2 - (i - 1) * 4),
 			Size = UDim2.fromOffset(3 + (i - 1) * 4, 2),
 			Rotation = -45,
 			BackgroundColor3 = Library.Scheme.OutlineLight,
@@ -1574,12 +1620,70 @@ local function MakeResizable(sizeTarget, gripParent, minW, minH, onResize)
 			Parent = grip,
 		})
 		Library:Register(tick, "BackgroundColor3", "OutlineLight")
+		ticks[i] = tick
 		i = i + 1
 	end
 
 	local resizing = false
 	local startMouse = Vector2.new()
 	local startSize = sizeTarget.Size
+	local startPos = sizeTarget.Position
+	local stepConn = nil
+
+	local function tintTicks(color)
+		local j = 1
+		while j <= #ticks do
+			TweenRaw(ticks[j], Anim.Fast, { BackgroundColor3 = color })
+			j = j + 1
+		end
+	end
+	local function setIdle()
+		TweenRaw(grip, Anim.Fast, { BackgroundTransparency = 1 })
+		tintTicks(Library.Scheme.OutlineLight)
+	end
+
+	Connect(grip.MouseEnter, function()
+		TweenRaw(grip, Anim.Fast, { BackgroundTransparency = 0.82 })
+		tintTicks(Library.Scheme.Accent)
+	end)
+	Connect(grip.MouseLeave, function()
+		if not resizing then
+			setIdle()
+		end
+	end)
+
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+
+	-- Only runs while a resize is in flight (connected on grab, dropped on
+	-- release), so idle windows pay nothing per frame.
+	local function step()
+		if Library.Unloaded or not resizing then
+			stopStep()
+			return
+		end
+		local now = UserInputService:GetMouseLocation()
+		local dx = now.X - startMouse.X
+		local dy = now.Y - startMouse.Y
+		local newW = math.max(minW, startSize.X.Offset + dx)
+		local newH = math.max(minH, startSize.Y.Offset + dy)
+		-- Actual applied delta after the min clamp. The wrapper is centre-anchored,
+		-- so shifting position by half the growth keeps the top-left corner pinned
+		-- while the bottom-right corner tracks the cursor 1:1.
+		local dW = newW - startSize.X.Offset
+		local dH = newH - startSize.Y.Offset
+		sizeTarget.Size = UDim2.new(0, newW, 0, newH)
+		sizeTarget.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + dW / 2,
+			startPos.Y.Scale,
+			startPos.Y.Offset + dH / 2
+		)
+	end
 
 	Connect(grip.InputBegan, function(input)
 		local t = input.UserInputType
@@ -1587,28 +1691,24 @@ local function MakeResizable(sizeTarget, gripParent, minW, minH, onResize)
 			resizing = true
 			startMouse = UserInputService:GetMouseLocation()
 			startSize = sizeTarget.Size
+			startPos = sizeTarget.Position
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
 		end
 	end)
 	Connect(UserInputService.InputEnded, function(input)
 		local t = input.UserInputType
 		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-			if resizing and onResize then
-				onResize(sizeTarget.Size)
+			if resizing then
+				resizing = false
+				stopStep()
+				setIdle()
+				if onResize then
+					onResize(sizeTarget.Size)
+				end
 			end
-			resizing = false
 		end
-	end)
-	Connect(RunService.RenderStepped, function()
-		if not resizing then
-			return
-		end
-		local now = UserInputService:GetMouseLocation()
-		local dx = now.X - startMouse.X
-		local dy = now.Y - startMouse.Y
-		-- Anchor is centred, so the frame grows twice as fast as the cursor moves.
-		local w = math.max(minW, startSize.X.Offset + dx * 2)
-		local h = math.max(minH, startSize.Y.Offset + dy * 2)
-		sizeTarget.Size = UDim2.new(0, w, 0, h)
 	end)
 
 	return grip
@@ -1642,6 +1742,16 @@ function Library:CreateWindow(opts)
 		resizable = true
 	end
 
+	-- Optional Theme applied up front: a preset name (string) or a table of
+	-- scheme keys. Doing it before the window is built means every element
+	-- registers straight from the chosen colours, and the instant Refresh
+	-- inside these setters repaints the already-built module UI too.
+	if type(opts.Theme) == "string" then
+		Library:ApplyPreset(opts.Theme, false)
+	elseif type(opts.Theme) == "table" then
+		Library:SetTheme(opts.Theme, false)
+	end
+
 	local Window = {}
 	Window.Tabs = {}
 	Window.ActiveTab = nil
@@ -1664,6 +1774,9 @@ function Library:CreateWindow(opts)
 
 	local shadow = Shadow(Wrapper, 6, 0.8, Library.Radius.Window)
 	local glow = Glow(Wrapper, Library.Radius.Window, 0.93, 5)
+	-- The shadow's layer set is static, so capture it once instead of
+	-- allocating a fresh children array on every drag lift and drop.
+	local shadowLayers = shadow:GetChildren()
 
 	-- Main is a CanvasGroup when the client supports it, which gives one
 	-- GroupTransparency knob to fade the entire window at once.
@@ -1993,7 +2106,7 @@ function Library:CreateWindow(opts)
 	-- Lift the shadow while dragging so the window reads as picked up.
 	MakeDraggable(Topbar, Wrapper, function()
 		local i = 1
-		local layers = shadow:GetChildren()
+		local layers = shadowLayers
 		while i <= #layers do
 			TweenRaw(layers[i], Anim.Smooth, {
 				Size = UDim2.new(1, i * 9, 1, i * 9),
@@ -2004,7 +2117,7 @@ function Library:CreateWindow(opts)
 		TweenRaw(glow, Anim.Smooth, { BackgroundTransparency = 0.86 })
 	end, function()
 		local i = 1
-		local layers = shadow:GetChildren()
+		local layers = shadowLayers
 		while i <= #layers do
 			TweenRaw(layers[i], Anim.Smooth, {
 				Size = UDim2.new(1, i * 6, 1, i * 6),
@@ -2281,6 +2394,21 @@ function Library:CreateWindow(opts)
 		end
 	end
 
+	-- Swap the whole colour scheme at runtime. Accepts a preset name (string)
+	-- or a table of scheme keys, matching the Theme option on CreateWindow.
+	-- Animates by default so a live theme change eases in.
+	function Window:ModifyTheme(theme, animate)
+		if animate == nil then
+			animate = true
+		end
+		if type(theme) == "string" then
+			Library:ApplyPreset(theme, animate)
+		elseif type(theme) == "table" then
+			Library:SetTheme(theme, animate)
+		end
+		return Window
+	end
+
 	table.insert(Library.Windows, Window)
 	return Window
 end
@@ -2317,12 +2445,17 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 	-- Wrapper is the layout item, so the card inside is free to slide during the
 	-- cascade animation without the list re-flowing. LayoutOrder is explicit
 	-- because equal orders are resolved by name, which would scramble cards.
+	-- A running per-column counter (stored as an attribute) sets the order
+	-- without allocating a children array on every card, and never collides
+	-- even if a card is later removed.
+	local cardOrder = (column:GetAttribute("VertexCardOrder") or 0) + 1
+	column:SetAttribute("VertexCardOrder", cardOrder)
 	local wrapper = New("Frame", {
 		Name = "CardWrap",
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		LayoutOrder = #column:GetChildren(),
+		LayoutOrder = cardOrder,
 		Parent = column,
 	})
 
@@ -3110,6 +3243,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		local sliderObj = { Value = value, Type = "Slider", Instance = row }
 		local changed = MakeSignal()
 		local dragging = false
+		local stepConn = nil
 
 		local function set(v, fire, instant)
 			v = math.clamp(round(v), min, max)
@@ -3129,7 +3263,11 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			if isNew and not dragging then
 				Punch(chipScale, 1.1, Anim.Spring)
 			end
-			if fire ~= false then
+			-- readMouse() calls set() every frame during a drag, so while dragging
+			-- only fire on an actual value change (avoids spawning a thread and
+			-- running the callback + signal many times a second for no movement).
+			-- Non-drag paths (SetValue, config load) keep firing unconditionally.
+			if fire ~= false and (isNew or not dragging) then
 				task.spawn(callback, v)
 				changed:Fire(v)
 			end
@@ -3144,6 +3282,22 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			set(min + (max - min) * ratio, true, true)
 		end
 
+		-- The follow loop only runs while the knob is held: connected on grab,
+		-- dropped on release, so idle sliders cost nothing per frame.
+		local function stopStep()
+			if stepConn then
+				stepConn:Disconnect()
+				stepConn = nil
+			end
+		end
+		local function step()
+			if Library.Unloaded or not dragging then
+				stopStep()
+				return
+			end
+			readMouse()
+		end
+
 		Connect(hit.InputBegan, function(input)
 			local t = input.UserInputType
 			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
@@ -3151,6 +3305,9 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 				TweenRaw(knobScale, Anim.Spring, { Scale = 1.35 })
 				TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 8) })
 				readMouse()
+				if not stepConn then
+					stepConn = RunService.RenderStepped:Connect(step)
+				end
 			end
 		end)
 		Connect(UserInputService.InputEnded, function(input)
@@ -3161,11 +3318,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 					TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 6) })
 				end
 				dragging = false
-			end
-		end)
-		Connect(RunService.RenderStepped, function()
-			if dragging then
-				readMouse()
+				stopStep()
 			end
 		end)
 		Connect(hit.MouseEnter, function()
@@ -3456,33 +3609,38 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 		end
 
 		--------------------------------------------------------------
-		-- Popup
+		-- Inline expander
 		--------------------------------------------------------------
-		-- Wrap holds the shadow (unclipped) and the card (clipped) so the popup
-		-- can grow out of nothing without the shadow being cut off.
-		local popupWrap = New("Frame", {
-			Name = "DropdownPopup",
-			Size = UDim2.fromOffset(120, 0),
-			BackgroundTransparency = 1,
-			Visible = false,
-			ZIndex = 200,
-			Parent = ScreenGui,
-		})
-		Shadow(popupWrap, 4, 0.86, Library.Radius.Card)
+		-- The option list lives INSIDE the row (below the button), not in a
+		-- floating popup, so it can never clip past the window: opening grows
+		-- the row, the groupbox container auto-sizes to match, and the tab
+		-- column scrolls to fit. `expand` is the clip window whose height is
+		-- driven by the row; `panel` is the fixed-height surface it reveals.
+		local GAP = 6
+		local rowBase = Library.Metrics.FieldRowH
 
-		local popup = New("Frame", {
-			Size = UDim2.new(1, 0, 1, 0),
+		local expand = New("Frame", {
+			Name = "Expand",
+			Position = UDim2.new(0, 0, 0, rowBase),
+			Size = UDim2.new(1, 0, 1, -rowBase),
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			Parent = row,
+		})
+
+		local panel = New("Frame", {
+			Name = "Panel",
+			Position = UDim2.new(0, 0, 0, GAP),
+			Size = UDim2.new(1, 0, 0, 0),
 			BackgroundColor3 = Library.Scheme.SurfaceAlt,
 			BorderSizePixel = 0,
 			ClipsDescendants = true,
-			ZIndex = 201,
-			Parent = popupWrap,
+			Parent = expand,
 		})
-		Corner(Library.Radius.Card, popup)
-		Library:Register(popup, "BackgroundColor3", "SurfaceAlt")
-		local popScale = Scale(popup, 1)
-		local popStroke = Stroke(popup, Library.Scheme.Accent, 1, 0.5)
-		Library:Register(popStroke, "Color", "Accent")
+		Corner(Library.Radius.Element, panel)
+		Library:Register(panel, "BackgroundColor3", "SurfaceAlt")
+		local panelStroke = Stroke(panel, Library.Scheme.Outline, 1, 0.3)
+		Library:Register(panelStroke, "Color", "Outline")
 
 		local searchBox = nil
 		local listTop = 5
@@ -3493,15 +3651,13 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 				Size = UDim2.new(1, -10, 0, 24),
 				BackgroundColor3 = Library.Scheme.Element,
 				BorderSizePixel = 0,
-				ZIndex = 202,
-				Parent = popup,
+				Parent = panel,
 			})
 			Corner(Library.Radius.Small, searchFrame)
 			Library:Register(searchFrame, "BackgroundColor3", "Element")
 			local sIcon = Library:CreateIcon(searchFrame, "search", 12, "Placeholder")
 			sIcon.AnchorPoint = Vector2.new(0, 0.5)
 			sIcon.Position = UDim2.new(0, 7, 0.5, 0)
-			sIcon.ZIndex = 203
 			searchBox = New("TextBox", {
 				Position = UDim2.new(0, 24, 0, 0),
 				Size = UDim2.new(1, -30, 1, 0),
@@ -3514,7 +3670,6 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 				TextColor3 = Library.Scheme.Text,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				ClearTextOnFocus = false,
-				ZIndex = 203,
 				Parent = searchFrame,
 			})
 			Library:Register(searchBox, "TextColor3", "Text")
@@ -3532,8 +3687,7 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			AutomaticCanvasSize = Enum.AutomaticSize.Y,
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			ElasticBehavior = Enum.ElasticBehavior.Never,
-			ZIndex = 202,
-			Parent = popup,
+			Parent = panel,
 		})
 		List(listFrame, 3)
 		Library:Register(listFrame, "ScrollBarImageColor3", "Accent")
@@ -3691,55 +3845,27 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 				return
 			end
 			isOpen = false
-			local w = popupWrap.Size.X.Offset
-			Tween(popupWrap, Anim.Fast, { Size = UDim2.fromOffset(w, 0) })
-			TweenRaw(popScale, Anim.Fast, { Scale = 0.96 })
+			-- Collapse the row back to just the button. The container auto-sizes
+			-- down and the tab column follows, so nothing is left hanging.
+			Tween(row, Anim.Smooth, { Size = UDim2.new(1, 0, 0, rowBase) })
 			TweenRaw(chevron, Anim.Smooth, { Rotation = 0 })
 			Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
-			task.delay(0.2, function()
-				if not isOpen then
-					popupWrap.Visible = false
-				end
-			end)
 		end
 
 		local function openPopup()
-			-- Only one popup at a time, otherwise they stack over each other.
+			-- Only one expander open at a time so rows do not fight for space.
 			local i = 1
 			while i <= #Library.Popups do
 				Library.Popups[i]()
 				i = i + 1
 			end
 			isOpen = true
-			popupWrap.Visible = true
 
-			local w = button.AbsoluteSize.X
+			-- Size the fixed panel to the current option count, then grow the
+			-- row to reveal it. `expand` clips the panel, so it unfolds cleanly.
 			local h = popupHeight()
-			local px = button.AbsolutePosition.X
-			local py = button.AbsolutePosition.Y + button.AbsoluteSize.Y + 6
-
-			-- Flip above when the list would spill past the window's bottom edge
-			-- (or the screen's) so it stays visually attached to the panel
-			-- instead of hanging out over the game world below the window.
-			local viewport = ScreenGui.AbsoluteSize
-			local limitY = viewport.Y - 8
-			local win = button:FindFirstAncestor("VertexWindow")
-			if win then
-				limitY = math.min(limitY, win.AbsolutePosition.Y + win.AbsoluteSize.Y - 8)
-			end
-			if py + h > limitY then
-				py = button.AbsolutePosition.Y - h - 6
-			end
-			if py < 8 then
-				py = 8
-			end
-			px = math.clamp(px, 8, math.max(8, viewport.X - w - 8))
-
-			popupWrap.Position = UDim2.fromOffset(px, py)
-			popupWrap.Size = UDim2.fromOffset(w, 0)
-			popScale.Scale = 0.96
-			Tween(popupWrap, Anim.Smooth, { Size = UDim2.fromOffset(w, h) })
-			TweenRaw(popScale, Anim.SoftSpring, { Scale = 1 })
+			panel.Size = UDim2.new(1, 0, 0, h)
+			Tween(row, Anim.Smooth, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
 			TweenRaw(chevron, Anim.Smooth, { Rotation = 180 })
 			Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0.25 })
 
@@ -3776,8 +3902,10 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 					rowObj.Button.Visible = (q == "" or string.find(hay, q, 1, true) ~= nil)
 					i = i + 1
 				end
+				local h = popupHeight()
+				panel.Size = UDim2.new(1, 0, 0, h)
 				if isOpen then
-					Tween(popupWrap, Anim.Fast, { Size = UDim2.fromOffset(popupWrap.Size.X.Offset, popupHeight()) })
+					Tween(row, Anim.Fast, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
 				end
 			end)
 		end
@@ -3802,21 +3930,6 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			end
 		end)
 
-		-- Click-away to dismiss.
-		Connect(UserInputService.InputBegan, function(input)
-			if not isOpen or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-				return
-			end
-			local m = UserInputService:GetMouseLocation()
-			local function inside(obj)
-				local p, s = obj.AbsolutePosition, obj.AbsoluteSize
-				return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y and m.Y <= p.Y + s.Y
-			end
-			if not inside(popupWrap) and not inside(button) then
-				dropObj._close()
-			end
-		end)
-
 		function dropObj:SetValue(v, silent)
 			dropObj.Value = v
 			Library.Flags[flag] = v
@@ -3836,6 +3949,13 @@ function Library:_CreateGroupbox(column, title, iconName, owningTab)
 			values = newValues or {}
 			rebuild()
 			display()
+			-- If the list is open while its options change, re-fit the row so the
+			-- expander matches the new option count instead of clipping or gapping.
+			if isOpen then
+				local h = popupHeight()
+				panel.Size = UDim2.new(1, 0, 0, h)
+				Tween(row, Anim.Fast, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
+			end
 			return dropObj
 		end
 		dropObj.SetOptions = dropObj.SetValues
@@ -4414,6 +4534,7 @@ function Library:_ColorPicker(parent, flag, opts, order)
 
 	local dragSV = false
 	local dragHue = false
+	local stepConn = nil
 
 	local function readSV()
 		local size = svBox.AbsoluteSize
@@ -4434,11 +4555,33 @@ function Library:_ColorPicker(parent, flag, opts, order)
 		refresh()
 	end
 
+	-- One follow loop shared by both handles, live only while one is held.
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+	local function step()
+		if Library.Unloaded or (not dragSV and not dragHue) then
+			stopStep()
+			return
+		end
+		if dragSV then
+			readSV()
+		elseif dragHue then
+			readHue()
+		end
+	end
+
 	Connect(svBox.InputBegan, function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			dragSV = true
 			TweenRaw(svCursorScale, Anim.Spring, { Scale = 1.35 })
 			readSV()
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
 		end
 	end)
 	Connect(hueBar.InputBegan, function(input)
@@ -4446,6 +4589,9 @@ function Library:_ColorPicker(parent, flag, opts, order)
 			dragHue = true
 			TweenRaw(hueKnobScale, Anim.Spring, { Scale = 1.25 })
 			readHue()
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
 		end
 	end)
 	Connect(UserInputService.InputEnded, function(input)
@@ -4458,13 +4604,7 @@ function Library:_ColorPicker(parent, flag, opts, order)
 			end
 			dragSV = false
 			dragHue = false
-		end
-	end)
-	Connect(RunService.RenderStepped, function()
-		if dragSV then
-			readSV()
-		elseif dragHue then
-			readHue()
+			stopStep()
 		end
 	end)
 
