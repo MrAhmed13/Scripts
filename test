@@ -1,0 +1,5602 @@
+--[[
+	▪▪▗   ▪▪▗▪▪▪▪▪▪▗▪▪▪▪▪▗ ▪▪▪▪▪▪▪▗▪▪▪▪▪▪▪▗▪▪▗  ▪▪▗
+	▪▪▛   ▪▪▛▪▪▒▚▚▚▚▝▪▪▒▚▚▪▪▗▚▚▪▪▒▚▚▝▪▪▒▚▚▚▚▝▚▪▪▗▪▪▒▝
+	▪▪▛   ▪▪▛▪▪▪▪▪▪▗  ▪▪▪▪▪▒▝   ▪▪▛   ▪▪▪▪▪▗   ▚▪▪▪▒▝
+	▚▪▪▗ ▪▪▒▝▪▪▒▚▚▝  ▪▪▒▚▚▪▪▗   ▪▪▛   ▪▪▒▚▚▝   ▪▪▒▪▪▗
+	 ▚▪▪▪▪▒▝ ▪▪▪▪▪▪▪▗▪▪▛  ▪▪▗   ▪▪▛   ▪▪▪▪▪▪▪▗▪▪▒▝ ▪▪▗
+	  ▚▚▚▚▝  ▚▚▚▚▚▚▝▚▚▝  ▚▚▝   ▚▚▝   ▚▚▚▚▚▚▝▚▚▝  ▚▚▝
+
+	Vertex UI Library — v2.0.0
+	--------------------------
+	A polished, heavily animated UI library for Roblox executors.
+
+	  * 100% native Roblox Instances — zero external dependencies
+	  * Lucide icon set built in (268 curated icons, extendable)
+	  * Layered soft shadows, accent glow, subtle gradients
+	  * Ripples, hover lifts, spring easing, staggered reveals,
+	    cross-faded tab pages, animated popups
+	  * Live theming (every element recolors instantly) + 9 presets
+	  * Config save / load, built-in settings tab, tooltips,
+	    draggable + resizable window, FPS/ping watermark
+
+	See README.md for the full API.
+]]
+
+local Library = {}
+
+Library.Version = "2.0.0"
+Library.Unloaded = false
+Library.Toggled = true
+
+-- // Services
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local Stats = nil
+pcall(function()
+	Stats = game:GetService("Stats")
+end)
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- // Public state tables
+Library.Flags = {}
+Library.Toggles = {}
+Library.Options = {}
+Library.Connections = {}
+Library.ThemeMap = {}
+Library.Windows = {}
+Library.Popups = {}
+Library.OpenPopups = {}
+Library.Icons = {}
+
+-- // Design tokens ------------------------------------------------------------
+-- Corner radii, in pixels. One scale, used everywhere, so nothing looks off.
+Library.Radius = {
+	Window = 14,
+	Card = 11,
+	Element = 8,
+	Small = 6,
+	Tiny = 4,
+}
+
+-- Vertical rhythm. Everything is a multiple of 2 so rows always line up.
+Library.Metrics = {
+	Topbar = 48,
+	Sidebar = 172,
+	RowGap = 8,
+	CardGap = 10,
+	PagePad = 12,
+	CardPad = 12,
+	ButtonH = 34,
+	FieldH = 30,
+	ToggleRowH = 26,
+	SliderRowH = 46,
+	FieldRowH = 48,
+	TabH = 36,
+}
+
+-- // Default theme -----------------------------------------------------------
+Library.Scheme = {
+	Accent = Color3.fromRGB(255, 0, 0),
+	AccentDim = Color3.fromRGB(209, 16, 16),
+	Background = Color3.fromRGB(14, 14, 19),
+	Topbar = Color3.fromRGB(19, 19, 26),
+	Surface = Color3.fromRGB(23, 23, 31),
+	SurfaceAlt = Color3.fromRGB(28, 28, 37),
+	Element = Color3.fromRGB(33, 33, 44),
+	ElementHover = Color3.fromRGB(43, 43, 57),
+	ElementActive = Color3.fromRGB(52, 52, 68),
+	Outline = Color3.fromRGB(41, 41, 54),
+	OutlineLight = Color3.fromRGB(58, 58, 76),
+	Text = Color3.fromRGB(238, 238, 246),
+	SubText = Color3.fromRGB(150, 150, 168),
+	Placeholder = Color3.fromRGB(100, 100, 118),
+	Danger = Color3.fromRGB(255, 92, 102),
+	Success = Color3.fromRGB(74, 222, 152),
+	Warning = Color3.fromRGB(255, 190, 88),
+	Shadow = Color3.fromRGB(0, 0, 0),
+}
+
+Library.Font = Enum.Font.GothamMedium
+Library.FontBold = Enum.Font.GothamBold
+Library.FontRegular = Enum.Font.Gotham
+
+Library.ToggleKey = Enum.KeyCode.RightControl
+
+-- Set to true to allow fetching the full 1500-icon Lucide set on a cache miss.
+-- Off by default: the 268 built-in icons cover almost everything, and leaving
+-- this off means the library never touches the network or runs remote code.
+Library.RemoteIcons = false
+Library.IconSource = "https://raw.githubusercontent.com/Footagesus/Icons/refs/heads/main/lucide/dist/Icons.lua"
+
+-- // Animation curves --------------------------------------------------------
+-- Named so every animation in the library reads the same and stays consistent.
+local Anim = {
+	Snap = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+	Fast = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+	Smooth = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+	Slow = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+	Spring = TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	SoftSpring = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	Bounce = TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
+	Linear = TweenInfo.new(0.2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+}
+Library.Anim = Anim
+
+--============================================================================
+-- SECTION 1 — Primitive builders
+--============================================================================
+
+-- Create an Instance from a property table. `Parent` is applied last so the
+-- instance is fully configured before it ever renders (avoids a 1-frame flash).
+local function New(class, props, children)
+	local inst = Instance.new(class)
+	if props then
+		for k, v in pairs(props) do
+			if k ~= "Parent" then
+				inst[k] = v
+			end
+		end
+	end
+	if children then
+		local i = 1
+		while i <= #children do
+			children[i].Parent = inst
+			i = i + 1
+		end
+	end
+	if props and props.Parent then
+		inst.Parent = props.Parent
+	end
+	return inst
+end
+
+local function Corner(radius, parent)
+	return New("UICorner", {
+		CornerRadius = UDim.new(0, radius or Library.Radius.Element),
+		Parent = parent,
+	})
+end
+
+-- A fully-round "pill" corner for switches and chips.
+local function Pill(parent)
+	return New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = parent })
+end
+
+local function Stroke(parent, color, thickness, transparency)
+	return New("UIStroke", {
+		Color = color or Library.Scheme.Outline,
+		Thickness = thickness or 1,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		LineJoinMode = Enum.LineJoinMode.Round,
+		Parent = parent,
+	})
+end
+
+local function Pad(parent, top, right, bottom, left)
+	-- Pad(p, 10)            -> 10 on every side
+	-- Pad(p, 10, 14)        -> 10 vertical, 14 horizontal
+	-- Pad(p, t, r, b, l)    -> explicit
+	right = right or top
+	bottom = bottom or top
+	left = left or right
+	return New("UIPadding", {
+		PaddingTop = UDim.new(0, top),
+		PaddingRight = UDim.new(0, right),
+		PaddingBottom = UDim.new(0, bottom),
+		PaddingLeft = UDim.new(0, left),
+		Parent = parent,
+	})
+end
+
+local function List(parent, padding, direction, sort)
+	return New("UIListLayout", {
+		FillDirection = direction or Enum.FillDirection.Vertical,
+		SortOrder = sort or Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, padding or 0),
+		Parent = parent,
+	})
+end
+
+local function Scale(parent, value)
+	return New("UIScale", { Scale = value or 1, Parent = parent })
+end
+
+--============================================================================
+-- SECTION 2 — Colour maths
+--============================================================================
+
+local function Clamp01(n)
+	if n < 0 then
+		return 0
+	elseif n > 1 then
+		return 1
+	end
+	return n
+end
+
+local function Darken(c, f)
+	return Color3.new(c.R * (1 - f), c.G * (1 - f), c.B * (1 - f))
+end
+
+local function Lighten(c, f)
+	return Color3.new(c.R + (1 - c.R) * f, c.G + (1 - c.G) * f, c.B + (1 - c.B) * f)
+end
+
+local function Mix(a, b, t)
+	return Color3.new(a.R + (b.R - a.R) * t, a.G + (b.G - a.G) * t, a.B + (b.B - a.B) * t)
+end
+
+-- Rotate hue while keeping saturation/value — used for the accent gradients so
+-- the sweep looks like light moving across the surface instead of a flat fade.
+local function Shift(c, degrees)
+	local h, s, v = c:ToHSV()
+	h = (h + degrees / 360) % 1
+	return Color3.fromHSV(h, s, v)
+end
+
+local function Saturate(c, f)
+	local h, s, v = c:ToHSV()
+	return Color3.fromHSV(h, Clamp01(s + f), v)
+end
+
+local function Luminance(c)
+	return c.R * 0.299 + c.G * 0.587 + c.B * 0.114
+end
+
+-- Pick black or white text depending on how bright the background is, so the
+-- accent colour can be anything the user wants and labels stay readable.
+local function Contrast(c)
+	if Luminance(c) > 0.6 then
+		return Color3.fromRGB(16, 16, 20)
+	end
+	return Color3.fromRGB(255, 255, 255)
+end
+
+local function ToHex(c)
+	return string.format(
+		"#%02X%02X%02X",
+		math.floor(c.R * 255 + 0.5),
+		math.floor(c.G * 255 + 0.5),
+		math.floor(c.B * 255 + 0.5)
+	)
+end
+
+Library.Darken = Darken
+Library.Lighten = Lighten
+Library.Mix = Mix
+Library.Contrast = Contrast
+
+--============================================================================
+-- SECTION 3 — Tweening + connection tracking
+--============================================================================
+
+local ActiveTweens = {}
+
+-- Every tween goes through here. Starting a new tween on the same
+-- (object, property-set) cancels the previous one, which is what stops the
+-- jitter you get when a hover-in and hover-out overlap.
+local function Tween(obj, info, goal)
+	if not obj or Library.Unloaded then
+		return nil
+	end
+	local key = obj
+	local existing = ActiveTweens[key]
+	if existing then
+		pcall(function()
+			existing:Cancel()
+		end)
+	end
+	local ok, tw = pcall(function()
+		return TweenService:Create(obj, info or Anim.Fast, goal)
+	end)
+	if not ok or not tw then
+		-- Property does not exist on this class: apply instantly instead of dying.
+		for k, v in pairs(goal) do
+			pcall(function()
+				obj[k] = v
+			end)
+		end
+		return nil
+	end
+	ActiveTweens[key] = tw
+	tw:Play()
+	tw.Completed:Connect(function()
+		if ActiveTweens[key] == tw then
+			ActiveTweens[key] = nil
+		end
+	end)
+	return tw
+end
+
+-- Fire-and-forget variant for one-shot decorations (ripples, flashes) that
+-- must never cancel the element's own hover tween.
+local function TweenRaw(obj, info, goal)
+	if not obj then
+		return nil
+	end
+	local ok, tw = pcall(function()
+		return TweenService:Create(obj, info or Anim.Fast, goal)
+	end)
+	if ok and tw then
+		tw:Play()
+		return tw
+	end
+	return nil
+end
+
+local function Connect(signal, fn)
+	local c = signal:Connect(fn)
+	table.insert(Library.Connections, c)
+	return c
+end
+
+Library.Tween = Tween
+Library.Connect = Connect
+
+--============================================================================
+-- SECTION 4 — Decorative primitives
+--============================================================================
+
+-- Vertical (or angled) two-stop gradient. Used to lift flat surfaces so the
+-- window reads as lit from the top rather than as a plain rectangle.
+local function Gradient(parent, top, bottom, rotation)
+	return New("UIGradient", {
+		Color = ColorSequence.new(top, bottom),
+		Rotation = rotation or 90,
+		Parent = parent,
+	})
+end
+
+-- Transparency-only gradient: fades a solid colour out along one axis.
+local function FadeGradient(parent, rotation, fromAlpha, toAlpha)
+	return New("UIGradient", {
+		Rotation = rotation or 0,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, fromAlpha or 0),
+			NumberSequenceKeypoint.new(1, toAlpha or 1),
+		}),
+		Parent = parent,
+	})
+end
+
+-- CanvasGroup gives us one GroupTransparency knob for a whole subtree, which is
+-- how the window fades in and out in a single tween. Older clients may not have
+-- the class, so fall back to a plain Frame and skip the fade.
+local function NewGroup(props)
+	local ok, inst = pcall(function()
+		return Instance.new("CanvasGroup")
+	end)
+	if ok and inst then
+		for k, v in pairs(props) do
+			if k ~= "Parent" then
+				pcall(function()
+					inst[k] = v
+				end)
+			end
+		end
+		if props.Parent then
+			inst.Parent = props.Parent
+		end
+		return inst, true
+	end
+
+	-- Frame has no GroupTransparency, so drop the props it cannot take.
+	local safe = {}
+	for k, v in pairs(props) do
+		if k ~= "GroupTransparency" and k ~= "GroupColor3" then
+			safe[k] = v
+		end
+	end
+	return New("Frame", safe), false
+end
+
+-- Soft drop shadow built from stacked rounded frames instead of an image asset,
+-- so there is nothing to load and nothing to break if an ID ever dies.
+local function Shadow(parent, spread, strength, radius)
+	spread = spread or 5
+	strength = strength or 0.82
+	radius = radius or Library.Radius.Window
+	local holder = New("Frame", {
+		Name = "Shadow",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		ZIndex = 0,
+		Parent = parent,
+	})
+	local i = 1
+	while i <= spread do
+		local grow = i * 3
+		local layer = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, i),
+			Size = UDim2.new(1, grow * 2, 1, grow * 2),
+			BackgroundColor3 = Library.Scheme.Shadow,
+			BackgroundTransparency = strength + (1 - strength) * (i / spread) * 0.9,
+			BorderSizePixel = 0,
+			ZIndex = 0,
+			Parent = holder,
+		})
+		Corner(radius + grow, layer)
+		Library:Register(layer, "BackgroundColor3", "Shadow")
+		i = i + 1
+	end
+	return holder
+end
+
+-- Accent halo that sits just outside a frame. Subtle, but it is most of what
+-- makes the window feel like it is floating above the game.
+local function Glow(parent, radius, alpha, grow)
+	grow = grow or 6
+	local g = New("Frame", {
+		Name = "Glow",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, grow * 2, 1, grow * 2),
+		BackgroundColor3 = Library.Scheme.Accent,
+		BackgroundTransparency = alpha or 0.92,
+		BorderSizePixel = 0,
+		ZIndex = 1,
+		Parent = parent,
+	})
+	Corner((radius or Library.Radius.Window) + grow, g)
+	Library:Register(g, "BackgroundColor3", "Accent")
+	return g
+end
+
+--============================================================================
+-- SECTION 5 — Interaction feedback (ripple / hover / press)
+--============================================================================
+
+-- Material-style ripple that expands from the click point. The host must clip
+-- its descendants or the circle will spill outside the rounded corners.
+local function Ripple(host, color, strength)
+	if not host or Library.Unloaded then
+		return
+	end
+	local absPos, absSize = host.AbsolutePosition, host.AbsoluteSize
+	local mouse = UserInputService:GetMouseLocation()
+	local relX = mouse.X - absPos.X
+	local relY = mouse.Y - absPos.Y
+
+	-- Diameter has to cover the far corner from wherever the click landed.
+	local farX = math.max(relX, absSize.X - relX)
+	local farY = math.max(relY, absSize.Y - relY)
+	local diameter = math.sqrt(farX * farX + farY * farY) * 2
+
+	local circle = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(relX, relY),
+		Size = UDim2.fromOffset(0, 0),
+		BackgroundColor3 = color or Library.Scheme.Accent,
+		BackgroundTransparency = strength or 0.72,
+		BorderSizePixel = 0,
+		ZIndex = 20,
+		Parent = host,
+	})
+	Pill(circle)
+
+	TweenRaw(circle, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		Size = UDim2.fromOffset(diameter, diameter),
+		BackgroundTransparency = 1,
+	})
+	task.delay(0.48, function()
+		if circle then
+			circle:Destroy()
+		end
+	end)
+end
+
+-- Quick scale punch, used on value labels and toggle knobs so state changes
+-- register visually even when the colour delta is small.
+local function Punch(scaleObj, amount, info)
+	if not scaleObj then
+		return
+	end
+	scaleObj.Scale = amount or 1.14
+	TweenRaw(scaleObj, info or Anim.Spring, { Scale = 1 })
+end
+
+--============================================================================
+-- SECTION 6 — Live theming registry
+--============================================================================
+
+-- Every coloured object registers itself here with the scheme key it follows.
+-- Changing the scheme then re-paints the whole UI in one pass, which is what
+-- makes the theme editor feel instant.
+function Library:Register(obj, prop, key, mod)
+	table.insert(Library.ThemeMap, { Obj = obj, Prop = prop, Key = key, Mod = mod })
+	local val = Library.Scheme[key]
+	if mod then
+		val = mod(val)
+	end
+	pcall(function()
+		obj[prop] = val
+	end)
+	return obj
+end
+
+-- Registers a UIGradient's ColorSequence against a scheme key. `build` receives
+-- the live colour and returns the sequence, so accent sweeps follow the theme.
+function Library:RegisterGradient(gradient, key, build)
+	table.insert(Library.ThemeMap, { Obj = gradient, Prop = "Color", Key = key, Mod = build })
+	pcall(function()
+		gradient.Color = build(Library.Scheme[key])
+	end)
+	return gradient
+end
+
+function Library:Refresh(animate)
+	local info = nil
+	if animate then
+		info = Anim.Smooth
+	end
+	local i = 1
+	local map = Library.ThemeMap
+	while i <= #map do
+		local e = map[i]
+		local obj = e.Obj
+		-- Drop entries whose instance has been destroyed so the map cannot grow
+		-- unbounded across long sessions.
+		if obj == nil or (typeof(obj) == "Instance" and obj.Parent == nil and not obj:IsA("ScreenGui")) then
+			i = i + 1
+		else
+			local val = Library.Scheme[e.Key]
+			if val ~= nil then
+				if e.Mod then
+					val = e.Mod(val)
+				end
+				if info and typeof(val) == "Color3" then
+					Tween(obj, info, { [e.Prop] = val })
+				else
+					pcall(function()
+						obj[e.Prop] = val
+					end)
+				end
+			end
+			i = i + 1
+		end
+	end
+end
+
+--============================================================================
+-- SECTION 7 — Lucide icon set
+--============================================================================
+-- 268 hand-picked Lucide icons, uploaded as individual Roblox image assets.
+-- Reference one by its kebab-case Lucide name, e.g. "sliders-horizontal".
+-- Anything not in here can be added with Library:AddIcons{ name = id }, or
+-- resolved automatically from the full 1500-icon set by setting
+-- Library.RemoteIcons = true.
+
+Library.Icons = {
+	["accessibility"] = "rbxassetid://114029945302017",
+	["activity"] = "rbxassetid://94212016861936",
+	["anchor"] = "rbxassetid://92181172123618",
+	["aperture"] = "rbxassetid://83396154449972",
+	["apple"] = "rbxassetid://104349242902442",
+	["arrow-down"] = "rbxassetid://98764963621439",
+	["arrow-left"] = "rbxassetid://102531941843733",
+	["arrow-right"] = "rbxassetid://113692007244654",
+	["arrow-up"] = "rbxassetid://89282378235317",
+	["arrow-up-down"] = "rbxassetid://81019887641527",
+	["at-sign"] = "rbxassetid://79059152889146",
+	["atom"] = "rbxassetid://73167696981648",
+	["award"] = "rbxassetid://132740088158419",
+	["axe"] = "rbxassetid://132405197863294",
+	["baby"] = "rbxassetid://93472926933440",
+	["backpack"] = "rbxassetid://140420225386018",
+	["ban"] = "rbxassetid://90767043015246",
+	["banknote"] = "rbxassetid://104840231536668",
+	["bath"] = "rbxassetid://76031400297942",
+	["bed"] = "rbxassetid://97726529032925",
+	["bell"] = "rbxassetid://97392696311902",
+	["bell-off"] = "rbxassetid://78560046118930",
+	["bird"] = "rbxassetid://132284145117371",
+	["blocks"] = "rbxassetid://72212693357737",
+	["bluetooth"] = "rbxassetid://90506573139443",
+	["bone"] = "rbxassetid://111242153474115",
+	["book"] = "rbxassetid://125383279695672",
+	["book-open"] = "rbxassetid://129845326810392",
+	["bookmark"] = "rbxassetid://121093149326239",
+	["bot"] = "rbxassetid://80451686744860",
+	["box"] = "rbxassetid://101768155599700",
+	["braces"] = "rbxassetid://117761094704041",
+	["brain"] = "rbxassetid://92424107303177",
+	["briefcase"] = "rbxassetid://96754188164225",
+	["bug"] = "rbxassetid://83626408925438",
+	["building"] = "rbxassetid://110616258983082",
+	["cake"] = "rbxassetid://103131590503275",
+	["calculator"] = "rbxassetid://74915716529646",
+	["calendar"] = "rbxassetid://114792700814035",
+	["camera"] = "rbxassetid://79950339943067",
+	["candy"] = "rbxassetid://107812129154678",
+	["car"] = "rbxassetid://121065933462582",
+	["carrot"] = "rbxassetid://119118221444304",
+	["castle"] = "rbxassetid://119275077187784",
+	["cat"] = "rbxassetid://124252153404931",
+	["chart-bar"] = "rbxassetid://105389816384108",
+	["chart-line"] = "rbxassetid://101833156055618",
+	["chart-pie"] = "rbxassetid://113412261630136",
+	["check"] = "rbxassetid://93898873302694",
+	["check-check"] = "rbxassetid://95183312173858",
+	["chevron-down"] = "rbxassetid://134243273101015",
+	["chevron-left"] = "rbxassetid://73780377692148",
+	["chevron-right"] = "rbxassetid://92473583511724",
+	["chevron-up"] = "rbxassetid://122444883127455",
+	["chevrons-up-down"] = "rbxassetid://131833120209646",
+	["circle"] = "rbxassetid://130359823580534",
+	["circle-alert"] = "rbxassetid://83898160590116",
+	["circle-question-mark"] = "rbxassetid://97516698664325",
+	["circle-slash"] = "rbxassetid://125206439913049",
+	["circle-user"] = "rbxassetid://136220511671311",
+	["clipboard"] = "rbxassetid://89601995828423",
+	["clock"] = "rbxassetid://121808839832144",
+	["cloud"] = "rbxassetid://121226497050352",
+	["cloud-rain"] = "rbxassetid://105547081967408",
+	["code"] = "rbxassetid://107380207681249",
+	["coffee"] = "rbxassetid://106864403231093",
+	["cog"] = "rbxassetid://116544501716299",
+	["coins"] = "rbxassetid://116510979641930",
+	["command"] = "rbxassetid://93648221906330",
+	["compass"] = "rbxassetid://115123411028382",
+	["contrast"] = "rbxassetid://112796643981497",
+	["cookie"] = "rbxassetid://73159504540002",
+	["copy"] = "rbxassetid://78979572434545",
+	["cpu"] = "rbxassetid://77549309870247",
+	["crosshair"] = "rbxassetid://134242818164054",
+	["crown"] = "rbxassetid://127843403295538",
+	["database"] = "rbxassetid://126791525623846",
+	["dices"] = "rbxassetid://81268120302865",
+	["dog"] = "rbxassetid://71920105558570",
+	["dollar-sign"] = "rbxassetid://127320961224019",
+	["donut"] = "rbxassetid://72204922742657",
+	["door-closed"] = "rbxassetid://136249099949073",
+	["door-open"] = "rbxassetid://91306356501736",
+	["download"] = "rbxassetid://134814648082393",
+	["droplet"] = "rbxassetid://100597455015098",
+	["drumstick"] = "rbxassetid://104662462521709",
+	["eraser"] = "rbxassetid://133957773112410",
+	["expand"] = "rbxassetid://137492887754537",
+	["external-link"] = "rbxassetid://129331830773832",
+	["eye"] = "rbxassetid://100033680381365",
+	["eye-off"] = "rbxassetid://135928786788378",
+	["file"] = "rbxassetid://74748492079329",
+	["file-text"] = "rbxassetid://90496405707281",
+	["fish"] = "rbxassetid://124360663785796",
+	["flag"] = "rbxassetid://78183383236196",
+	["flame"] = "rbxassetid://98218034436456",
+	["flask-conical"] = "rbxassetid://128406680901165",
+	["flower"] = "rbxassetid://86129438272762",
+	["focus"] = "rbxassetid://87493973153317",
+	["folder"] = "rbxassetid://80846616596607",
+	["folder-open"] = "rbxassetid://76018996254888",
+	["footprints"] = "rbxassetid://139192589041315",
+	["funnel"] = "rbxassetid://108829540827529",
+	["gamepad-2"] = "rbxassetid://92483947987410",
+	["gauge"] = "rbxassetid://110273524101447",
+	["gem"] = "rbxassetid://112904952151156",
+	["ghost"] = "rbxassetid://113822048130017",
+	["gift"] = "rbxassetid://109855212076373",
+	["git-branch"] = "rbxassetid://90490195516649",
+	["globe"] = "rbxassetid://114238209622913",
+	["graduation-cap"] = "rbxassetid://93771896340220",
+	["grid-2x2"] = "rbxassetid://99050491897640",
+	["hammer"] = "rbxassetid://83545120140895",
+	["hand"] = "rbxassetid://130703864968637",
+	["hand-heart"] = "rbxassetid://117507367668412",
+	["hard-drive"] = "rbxassetid://88183305858463",
+	["hash"] = "rbxassetid://82890331678520",
+	["headphones"] = "rbxassetid://118833729589183",
+	["heart"] = "rbxassetid://116559368303288",
+	["heart-pulse"] = "rbxassetid://129352925579546",
+	["history"] = "rbxassetid://123980022019922",
+	["hourglass"] = "rbxassetid://86160434939203",
+	["house"] = "rbxassetid://98755624629571",
+	["ice-cream-cone"] = "rbxassetid://90751397288639",
+	["image"] = "rbxassetid://112751259236831",
+	["info"] = "rbxassetid://124560466474914",
+	["joystick"] = "rbxassetid://99416790224739",
+	["key"] = "rbxassetid://96510194465420",
+	["key-round"] = "rbxassetid://83619031955390",
+	["keyboard"] = "rbxassetid://121474456068237",
+	["laugh"] = "rbxassetid://104491311361166",
+	["layers"] = "rbxassetid://81973586053257",
+	["layout-dashboard"] = "rbxassetid://139929981863901",
+	["layout-grid"] = "rbxassetid://81344910161871",
+	["leaf"] = "rbxassetid://119951075637174",
+	["lightbulb"] = "rbxassetid://103871245626488",
+	["link"] = "rbxassetid://131607023382430",
+	["list"] = "rbxassetid://113179976918783",
+	["list-ordered"] = "rbxassetid://83212528113913",
+	["loader-circle"] = "rbxassetid://116535712789945",
+	["locate"] = "rbxassetid://84467676590391",
+	["lock"] = "rbxassetid://134724289526879",
+	["lock-open"] = "rbxassetid://93597915325122",
+	["log-in"] = "rbxassetid://103768533135201",
+	["log-out"] = "rbxassetid://84895399304975",
+	["magnet"] = "rbxassetid://135162361226972",
+	["mail"] = "rbxassetid://103945161245599",
+	["map"] = "rbxassetid://95107167260947",
+	["map-pin"] = "rbxassetid://84279202219901",
+	["maximize-2"] = "rbxassetid://73085922906397",
+	["medal"] = "rbxassetid://79016002264450",
+	["meh"] = "rbxassetid://132197867028557",
+	["menu"] = "rbxassetid://77021539815611",
+	["message-circle"] = "rbxassetid://127255077587058",
+	["message-square"] = "rbxassetid://83881670383280",
+	["mic"] = "rbxassetid://89640799126523",
+	["mic-off"] = "rbxassetid://82123034444822",
+	["milk"] = "rbxassetid://96221903896918",
+	["minimize-2"] = "rbxassetid://116269596042539",
+	["minus"] = "rbxassetid://118026365011536",
+	["monitor"] = "rbxassetid://72664649203050",
+	["moon"] = "rbxassetid://83380517901735",
+	["mouse-pointer"] = "rbxassetid://72322454962935",
+	["move"] = "rbxassetid://116138709011735",
+	["music"] = "rbxassetid://113343203848535",
+	["navigation"] = "rbxassetid://79308213542922",
+	["orbit"] = "rbxassetid://108926136860562",
+	["package"] = "rbxassetid://97261141732706",
+	["paintbrush"] = "rbxassetid://125572663700289",
+	["palette"] = "rbxassetid://86350350950064",
+	["pause"] = "rbxassetid://74873705394436",
+	["paw-print"] = "rbxassetid://112218825427601",
+	["pencil"] = "rbxassetid://137986121120732",
+	["percent"] = "rbxassetid://130155041032013",
+	["person-standing"] = "rbxassetid://125020872044147",
+	["phone"] = "rbxassetid://128804946640049",
+	["pickaxe"] = "rbxassetid://105888023317688",
+	["pill"] = "rbxassetid://73280534813448",
+	["pin"] = "rbxassetid://120978111007514",
+	["pizza"] = "rbxassetid://126964453193501",
+	["plane"] = "rbxassetid://126985561580989",
+	["play"] = "rbxassetid://135609604299893",
+	["plus"] = "rbxassetid://111774323017047",
+	["power"] = "rbxassetid://96479131758775",
+	["power-off"] = "rbxassetid://118768311012214",
+	["puzzle"] = "rbxassetid://136837798892463",
+	["rabbit"] = "rbxassetid://98580518804206",
+	["radar"] = "rbxassetid://138528222906635",
+	["radio"] = "rbxassetid://85611589536956",
+	["redo-2"] = "rbxassetid://70451039017914",
+	["refresh-cw"] = "rbxassetid://138133190015277",
+	["repeat"] = "rbxassetid://121886242955173",
+	["rocket"] = "rbxassetid://87412317685854",
+	["rotate-ccw"] = "rbxassetid://110116685948665",
+	["rotate-cw"] = "rbxassetid://84183336178654",
+	["ruler"] = "rbxassetid://81432445547423",
+	["save"] = "rbxassetid://126116963775616",
+	["scale"] = "rbxassetid://108203682317477",
+	["scan"] = "rbxassetid://123104789658180",
+	["scan-eye"] = "rbxassetid://99244790601968",
+	["school"] = "rbxassetid://76351530290068",
+	["scissors"] = "rbxassetid://118665510911274",
+	["search"] = "rbxassetid://121018724060431",
+	["send"] = "rbxassetid://127751956873796",
+	["server"] = "rbxassetid://92188766517878",
+	["settings"] = "rbxassetid://80758916183665",
+	["settings-2"] = "rbxassetid://135684703553372",
+	["share-2"] = "rbxassetid://71210767962065",
+	["shield"] = "rbxassetid://110987169760162",
+	["shield-alert"] = "rbxassetid://114995877719925",
+	["shield-check"] = "rbxassetid://87354736164608",
+	["shopping-cart"] = "rbxassetid://128420521375441",
+	["shrink"] = "rbxassetid://90953687918880",
+	["shuffle"] = "rbxassetid://132382786975101",
+	["signal"] = "rbxassetid://78424889355261",
+	["skip-forward"] = "rbxassetid://124844823753990",
+	["skull"] = "rbxassetid://137726256442333",
+	["sliders-horizontal"] = "rbxassetid://85538382643347",
+	["sliders-vertical"] = "rbxassetid://101190569086853",
+	["smile"] = "rbxassetid://105880397565283",
+	["snowflake"] = "rbxassetid://101235206534566",
+	["soup"] = "rbxassetid://115092551871618",
+	["sparkle"] = "rbxassetid://111044800239623",
+	["sparkles"] = "rbxassetid://138635884129147",
+	["sprout"] = "rbxassetid://100091687832508",
+	["square"] = "rbxassetid://86304921356806",
+	["star"] = "rbxassetid://136141469398409",
+	["stethoscope"] = "rbxassetid://122331031702148",
+	["store"] = "rbxassetid://90338129673705",
+	["sun"] = "rbxassetid://110150589884127",
+	["sword"] = "rbxassetid://124448418211665",
+	["swords"] = "rbxassetid://81872698913435",
+	["syringe"] = "rbxassetid://123891270479254",
+	["target"] = "rbxassetid://87563802520297",
+	["tent"] = "rbxassetid://109779587826330",
+	["terminal"] = "rbxassetid://106783148545356",
+	["thumbs-down"] = "rbxassetid://87794009914015",
+	["thumbs-up"] = "rbxassetid://111137070767020",
+	["timer"] = "rbxassetid://85473888890506",
+	["toggle-left"] = "rbxassetid://85887872573050",
+	["toggle-right"] = "rbxassetid://90411952142550",
+	["toy-brick"] = "rbxassetid://86293483924633",
+	["trash-2"] = "rbxassetid://109843431391323",
+	["tree-pine"] = "rbxassetid://124662547202594",
+	["trending-down"] = "rbxassetid://139309232226438",
+	["trending-up"] = "rbxassetid://81819858538839",
+	["triangle-alert"] = "rbxassetid://125920361880643",
+	["trophy"] = "rbxassetid://131545003268773",
+	["type"] = "rbxassetid://133543553793564",
+	["undo-2"] = "rbxassetid://113885292059932",
+	["upload"] = "rbxassetid://138212042425501",
+	["user"] = "rbxassetid://81589895647169",
+	["user-plus"] = "rbxassetid://118514469915884",
+	["user-round"] = "rbxassetid://136485052187963",
+	["users"] = "rbxassetid://115398113982385",
+	["utensils"] = "rbxassetid://139952569804235",
+	["video"] = "rbxassetid://107587444636945",
+	["volume-2"] = "rbxassetid://89344380902620",
+	["volume-x"] = "rbxassetid://139252359189540",
+	["wand"] = "rbxassetid://114580617777835",
+	["wand-sparkles"] = "rbxassetid://82546429942392",
+	["warehouse"] = "rbxassetid://78388887451080",
+	["wifi"] = "rbxassetid://104669375183960",
+	["wifi-off"] = "rbxassetid://74113634330106",
+	["wind"] = "rbxassetid://114551690399915",
+	["wrench"] = "rbxassetid://112148279212860",
+	["x"] = "rbxassetid://110786993356448",
+	["zap"] = "rbxassetid://130551565616516",
+}
+
+-- Aliases for names that Lucide has since renamed, plus a few conveniences,
+-- so older icon names keep working instead of silently rendering nothing.
+Library.IconAliases = {
+	["home"] = "house",
+	["filter"] = "funnel",
+	["circle-help"] = "circle-question-mark",
+	["help-circle"] = "circle-question-mark",
+	["alert-triangle"] = "triangle-alert",
+	["alert-circle"] = "circle-alert",
+	["bar-chart"] = "chart-bar",
+	["pie-chart"] = "chart-pie",
+	["line-chart"] = "chart-line",
+	["unlock"] = "lock-open",
+	["user-circle"] = "circle-user",
+	["edit"] = "pencil",
+	["trash"] = "trash-2",
+	["cog"] = "settings",
+	["gear"] = "settings",
+	["refresh"] = "refresh-cw",
+	["reload"] = "rotate-cw",
+	["close"] = "x",
+	["tick"] = "check",
+	["warning"] = "triangle-alert",
+	["error"] = "circle-alert",
+	["success"] = "check-check",
+	["sliders"] = "sliders-horizontal",
+	["aim"] = "crosshair",
+	["esp"] = "scan-eye",
+	["player"] = "user-round",
+	["combat"] = "swords",
+	["visuals"] = "eye",
+	["world"] = "globe",
+	["config"] = "save",
+	["misc"] = "layout-grid",
+	["teleport"] = "map-pin",
+	["farm"] = "sprout",
+	["shop"] = "shopping-cart",
+	["stats"] = "chart-bar",
+	["credits"] = "heart",
+}
+
+-- Merge extra icons in at runtime: Library:AddIcons{ ["my-icon"] = 123456 }
+function Library:AddIcons(tbl)
+	if typeof(tbl) ~= "table" then
+		return
+	end
+	for name, id in pairs(tbl) do
+		if typeof(id) == "number" then
+			id = "rbxassetid://" .. tostring(id)
+		end
+		if typeof(id) == "string" then
+			Library.Icons[string.lower(name)] = id
+		end
+	end
+end
+
+local remoteIconsLoaded = false
+
+-- Pull the full Lucide set once, on the first cache miss, only if the user
+-- opted in. Wrapped in pcall so a dead URL or a blocked HttpGet is a no-op.
+local function LoadRemoteIcons()
+	if remoteIconsLoaded or not Library.RemoteIcons then
+		return
+	end
+	remoteIconsLoaded = true
+	pcall(function()
+		local source = game:HttpGet(Library.IconSource)
+		local chunk = loadstring(source)
+		if not chunk then
+			return
+		end
+		local data = chunk()
+		if typeof(data) ~= "table" then
+			return
+		end
+		for name, id in pairs(data) do
+			if Library.Icons[name] == nil then
+				Library.Icons[name] = id
+			end
+		end
+	end)
+end
+
+-- Turn whatever the caller passed into something Image can use.
+-- Accepts: a Lucide name, an alias, "rbxassetid://123", a bare number, or nil.
+-- Returns nil when the value should be drawn as text instead (emoji, glyphs).
+function Library:GetIcon(value)
+	if value == nil then
+		return nil
+	end
+	if typeof(value) == "number" then
+		return "rbxassetid://" .. tostring(value)
+	end
+	if typeof(value) ~= "string" or value == "" then
+		return nil
+	end
+	if string.match(value, "^rbxassetid://%d+$") or string.match(value, "^rbxasset://") then
+		return value
+	end
+	if string.match(value, "^%d+$") then
+		return "rbxassetid://" .. value
+	end
+
+	local key = string.lower(value)
+	key = string.gsub(key, "[%s_]+", "-")
+	local alias = Library.IconAliases[key]
+	if alias then
+		key = alias
+	end
+
+	local id = Library.Icons[key]
+	if id then
+		return id
+	end
+
+	LoadRemoteIcons()
+	return Library.Icons[key]
+end
+
+-- Builds the visual for an icon slot. Returns the instance plus whether it
+-- ended up as an image, so callers can adjust padding for text glyphs.
+function Library:CreateIcon(parent, value, size, themeKey, layoutOrder)
+	size = size or 16
+	local asset = Library:GetIcon(value)
+	if asset then
+		local img = New("ImageLabel", {
+			Name = "Icon",
+			BackgroundTransparency = 1,
+			Image = asset,
+			ImageColor3 = Library.Scheme[themeKey or "SubText"],
+			Size = UDim2.fromOffset(size, size),
+			ScaleType = Enum.ScaleType.Fit,
+			LayoutOrder = layoutOrder or 0,
+			Parent = parent,
+		})
+		Library:Register(img, "ImageColor3", themeKey or "SubText")
+		return img, true
+	end
+
+	-- Emoji or any other glyph string: render as text so nothing is lost.
+	local txt = New("TextLabel", {
+		Name = "Icon",
+		BackgroundTransparency = 1,
+		Text = tostring(value),
+		Font = Library.Font,
+		TextSize = size,
+		TextColor3 = Library.Scheme[themeKey or "SubText"],
+		Size = UDim2.fromOffset(size, size),
+		LayoutOrder = layoutOrder or 0,
+		Parent = parent,
+	})
+	Library:Register(txt, "TextColor3", themeKey or "SubText")
+	return txt, false
+end
+
+--============================================================================
+-- SECTION 8 — GUI host
+--============================================================================
+
+-- Executors expose a hidden container that games cannot see or delete. Prefer
+-- it, then CoreGui, then PlayerGui as a last resort.
+local function GetGuiParent()
+	local ok, hidden = pcall(function()
+		return gethui()
+	end)
+	if ok and typeof(hidden) == "Instance" then
+		return hidden
+	end
+	local ok2, core = pcall(function()
+		return game:GetService("CoreGui")
+	end)
+	if ok2 and core then
+		return core
+	end
+	return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function Protect(gui)
+	pcall(function()
+		if syn and syn.protect_gui then
+			syn.protect_gui(gui)
+		elseif protect_gui then
+			protect_gui(gui)
+		end
+	end)
+end
+
+local ScreenGui = New("ScreenGui", {
+	Name = "Vertex_" .. tostring(math.random(100000, 999999)),
+	ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	IgnoreGuiInset = true,
+	DisplayOrder = 9999,
+})
+Protect(ScreenGui)
+ScreenGui.Parent = GetGuiParent()
+Library.ScreenGui = ScreenGui
+
+--============================================================================
+-- SECTION 9 — Tooltips
+--============================================================================
+
+local Tooltip = New("Frame", {
+	Name = "Tooltip",
+	AutomaticSize = Enum.AutomaticSize.XY,
+	Size = UDim2.fromOffset(0, 0),
+	BackgroundColor3 = Library.Scheme.SurfaceAlt,
+	BackgroundTransparency = 1,
+	Visible = false,
+	ZIndex = 500,
+	Parent = ScreenGui,
+})
+Corner(Library.Radius.Small, Tooltip)
+Library:Register(Tooltip, "BackgroundColor3", "SurfaceAlt")
+local tipStroke = Stroke(Tooltip, Library.Scheme.OutlineLight, 1, 1)
+Library:Register(tipStroke, "Color", "OutlineLight")
+local tipScale = Scale(Tooltip, 1)
+Pad(Tooltip, 6, 9)
+
+local tipLabel = New("TextLabel", {
+	AutomaticSize = Enum.AutomaticSize.XY,
+	Size = UDim2.fromOffset(0, 0),
+	BackgroundTransparency = 1,
+	Font = Library.Font,
+	Text = "",
+	TextSize = 12,
+	TextColor3 = Library.Scheme.Text,
+	TextTransparency = 1,
+	ZIndex = 501,
+	Parent = Tooltip,
+})
+Library:Register(tipLabel, "TextColor3", "Text")
+
+local tipToken = 0
+
+local function HideTooltip()
+	tipToken = tipToken + 1
+	Tween(Tooltip, Anim.Snap, { BackgroundTransparency = 1 })
+	TweenRaw(tipStroke, Anim.Snap, { Transparency = 1 })
+	TweenRaw(tipLabel, Anim.Snap, { TextTransparency = 1 })
+	task.delay(0.16, function()
+		if Tooltip.BackgroundTransparency >= 0.99 then
+			Tooltip.Visible = false
+		end
+	end)
+end
+
+local function ShowTooltip(text)
+	tipToken = tipToken + 1
+	local token = tipToken
+	-- Small delay so brushing past an element does not flash a tooltip.
+	task.delay(0.4, function()
+		if token ~= tipToken or Library.Unloaded then
+			return
+		end
+		tipLabel.Text = text
+		Tooltip.Visible = true
+		local mouse = UserInputService:GetMouseLocation()
+		Tooltip.Position = UDim2.fromOffset(mouse.X + 14, mouse.Y + 6)
+		tipScale.Scale = 0.9
+		Tween(Tooltip, Anim.Fast, { BackgroundTransparency = 0.04 })
+		TweenRaw(tipScale, Anim.Spring, { Scale = 1 })
+		TweenRaw(tipStroke, Anim.Fast, { Transparency = 0.35 })
+		TweenRaw(tipLabel, Anim.Fast, { TextTransparency = 0 })
+	end)
+end
+
+-- Attach hover text to any GuiObject. Safe to call with nil text.
+function Library:AttachTooltip(target, text)
+	if not text or text == "" or not target then
+		return
+	end
+	Connect(target.MouseEnter, function()
+		ShowTooltip(text)
+	end)
+	Connect(target.MouseLeave, function()
+		HideTooltip()
+	end)
+end
+
+--============================================================================
+-- SECTION 10 — Notifications
+--============================================================================
+
+local NotifHolder = New("Frame", {
+	Name = "Notifications",
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(1, -18, 1, -18),
+	Size = UDim2.new(0, 306, 1, -36),
+	BackgroundTransparency = 1,
+	ZIndex = 400,
+	Parent = ScreenGui,
+})
+New("UIListLayout", {
+	FillDirection = Enum.FillDirection.Vertical,
+	VerticalAlignment = Enum.VerticalAlignment.Bottom,
+	HorizontalAlignment = Enum.HorizontalAlignment.Right,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Padding = UDim.new(0, 9),
+	Parent = NotifHolder,
+})
+
+-- Accent colour + default glyph per notification kind.
+local NotifKinds = {
+	info = { Key = "Accent", Icon = "info" },
+	success = { Key = "Success", Icon = "check-check" },
+	warning = { Key = "Warning", Icon = "triangle-alert" },
+	error = { Key = "Danger", Icon = "circle-alert" },
+}
+
+--[[
+	Library:Notify("just some text")
+	Library:Notify({
+		Title = "Daycare Hub",
+		Text = "Collected everything.",
+		Duration = 4,
+		Type = "success",       -- info | success | warning | error
+		Icon = "shopping-cart", -- any Lucide name, overrides the kind default
+	})
+]]
+function Library:Notify(opts)
+	if typeof(opts) == "string" then
+		opts = { Text = opts }
+	end
+	opts = opts or {}
+
+	local title = opts.Title or "Vertex"
+	local body = opts.Text or opts.Content or opts.Description or ""
+	local duration = opts.Duration or opts.Time or 4
+	local kindName = string.lower(tostring(opts.Type or "info"))
+	local kind = NotifKinds[kindName] or NotifKinds.info
+	local iconName = opts.Icon or kind.Icon
+
+	-- Outer holder is what the list layout measures; the card inside is what
+	-- actually slides, so the stack never jumps while animating.
+	local holder = New("Frame", {
+		Name = "Notification",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ClipsDescendants = false,
+		Parent = NotifHolder,
+	})
+
+	local card = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		Position = UDim2.new(0, 60, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Library.Scheme.Surface,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		Parent = holder,
+	})
+	Corner(Library.Radius.Card, card)
+	Library:Register(card, "BackgroundColor3", "Surface")
+	Gradient(card, Color3.fromRGB(255, 255, 255), Color3.fromRGB(226, 226, 236), 90)
+
+	local cardScale = Scale(card, 0.94)
+	local cardStroke = Stroke(card, Library.Scheme.OutlineLight, 1, 1)
+	Library:Register(cardStroke, "Color", "OutlineLight")
+
+	-- Left accent stripe, keyed to the notification kind.
+	local stripe = New("Frame", {
+		Size = UDim2.new(0, 3, 1, -16),
+		Position = UDim2.new(0, 0, 0, 8),
+		BackgroundColor3 = Library.Scheme[kind.Key],
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 3,
+		Parent = card,
+	})
+	Pill(stripe)
+	Library:Register(stripe, "BackgroundColor3", kind.Key)
+
+	local row = New("Frame", {
+		Size = UDim2.new(1, -14, 0, 0),
+		Position = UDim2.new(0, 14, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 3,
+		Parent = card,
+	})
+	Pad(row, 12, 14, 14, 10)
+
+	-- Icon chip: accent-tinted rounded square holding the Lucide glyph.
+	local chip = New("Frame", {
+		Size = UDim2.fromOffset(30, 30),
+		Position = UDim2.new(0, 0, 0, 0),
+		BackgroundColor3 = Library.Scheme[kind.Key],
+		BackgroundTransparency = 0.86,
+		BorderSizePixel = 0,
+		ZIndex = 4,
+		Parent = row,
+	})
+	Corner(Library.Radius.Element, chip)
+	Library:Register(chip, "BackgroundColor3", kind.Key)
+	local chipIcon = Library:CreateIcon(chip, iconName, 17, kind.Key)
+	chipIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	chipIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+	chipIcon.ZIndex = 5
+
+	local textCol = New("Frame", {
+		Size = UDim2.new(1, -40, 0, 0),
+		Position = UDim2.new(0, 40, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = row,
+	})
+	List(textCol, 3)
+
+	local titleLabel = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 15),
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = title,
+		TextColor3 = Library.Scheme.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTransparency = 1,
+		ZIndex = 5,
+		Parent = textCol,
+	})
+	Library:Register(titleLabel, "TextColor3", "Text")
+
+	local bodyLabel = nil
+	if body ~= "" then
+		bodyLabel = New("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = body,
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextWrapped = true,
+			TextTransparency = 1,
+			LineHeight = 1.15,
+			ZIndex = 5,
+			Parent = textCol,
+		})
+		Library:Register(bodyLabel, "TextColor3", "SubText")
+	end
+
+	-- Countdown bar along the bottom edge.
+	local barTrack = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 2),
+		Position = UDim2.new(0, 0, 1, -2),
+		BackgroundColor3 = Library.Scheme.Outline,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 6,
+		Parent = card,
+	})
+	local bar = New("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Library.Scheme[kind.Key],
+		BorderSizePixel = 0,
+		ZIndex = 7,
+		Parent = barTrack,
+	})
+	Library:Register(bar, "BackgroundColor3", kind.Key)
+
+	-- Slide in from the right, pop the scale, fade the text in slightly later.
+	Tween(card, Anim.Smooth, { Position = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 0.02 })
+	TweenRaw(cardScale, Anim.SoftSpring, { Scale = 1 })
+	TweenRaw(cardStroke, Anim.Smooth, { Transparency = 0.3 })
+	TweenRaw(stripe, Anim.Smooth, { BackgroundTransparency = 0 })
+	TweenRaw(barTrack, Anim.Smooth, { BackgroundTransparency = 0.6 })
+	TweenRaw(titleLabel, Anim.Slow, { TextTransparency = 0 })
+	if bodyLabel then
+		TweenRaw(bodyLabel, Anim.Slow, { TextTransparency = 0.08 })
+	end
+	TweenRaw(bar, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 1, 0) })
+
+	local closed = false
+	local notif = {}
+
+	function notif:Close()
+		if closed then
+			return
+		end
+		closed = true
+		Tween(card, Anim.Smooth, { Position = UDim2.new(0, 70, 0, 0), BackgroundTransparency = 1 })
+		TweenRaw(cardScale, Anim.Smooth, { Scale = 0.92 })
+		TweenRaw(cardStroke, Anim.Fast, { Transparency = 1 })
+		TweenRaw(stripe, Anim.Fast, { BackgroundTransparency = 1 })
+		TweenRaw(barTrack, Anim.Fast, { BackgroundTransparency = 1 })
+		TweenRaw(titleLabel, Anim.Fast, { TextTransparency = 1 })
+		if bodyLabel then
+			TweenRaw(bodyLabel, Anim.Fast, { TextTransparency = 1 })
+		end
+		task.delay(0.3, function()
+			if holder then
+				holder:Destroy()
+			end
+		end)
+	end
+
+	task.delay(duration, function()
+		notif:Close()
+	end)
+
+	notif.Card = card
+	return notif
+end
+
+--============================================================================
+-- SECTION 11 — Watermark
+--============================================================================
+
+local Watermark = New("Frame", {
+	Name = "Watermark",
+	Position = UDim2.new(0, 18, 0, 18),
+	Size = UDim2.new(0, 0, 0, 30),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundColor3 = Library.Scheme.Topbar,
+	BackgroundTransparency = 0.05,
+	Visible = false,
+	ZIndex = 300,
+	Parent = ScreenGui,
+})
+Corner(Library.Radius.Element, Watermark)
+Library:Register(Watermark, "BackgroundColor3", "Topbar")
+local wmStroke = Stroke(Watermark, Library.Scheme.OutlineLight, 1, 0.4)
+Library:Register(wmStroke, "Color", "OutlineLight")
+local wmScale = Scale(Watermark, 1)
+
+-- Accent hairline across the top, fading out to the right.
+local wmAccent = New("Frame", {
+	Size = UDim2.new(1, 0, 0, 2),
+	BackgroundColor3 = Library.Scheme.Accent,
+	BorderSizePixel = 0,
+	ZIndex = 301,
+	Parent = Watermark,
+})
+Library:Register(wmAccent, "BackgroundColor3", "Accent")
+local wmGrad = New("UIGradient", { Parent = wmAccent })
+Library:RegisterGradient(wmGrad, "Accent", function(accent)
+	return ColorSequence.new(accent, Shift(accent, 40))
+end)
+
+local wmRow = New("Frame", {
+	Size = UDim2.new(0, 0, 1, 0),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundTransparency = 1,
+	ZIndex = 302,
+	Parent = Watermark,
+})
+Pad(wmRow, 0, 12)
+New("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Padding = UDim.new(0, 7),
+	Parent = wmRow,
+})
+
+local wmIcon = Library:CreateIcon(wmRow, "zap", 14, "Accent", 1)
+local wmLabel = New("TextLabel", {
+	Size = UDim2.new(0, 0, 1, 0),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundTransparency = 1,
+	Font = Library.FontBold,
+	Text = "Vertex",
+	TextColor3 = Library.Scheme.Text,
+	TextSize = 13,
+	TextYAlignment = Enum.TextYAlignment.Center,
+	LayoutOrder = 2,
+	ZIndex = 302,
+	Parent = wmRow,
+})
+Library:Register(wmLabel, "TextColor3", "Text")
+
+local watermarkText = "Vertex"
+Library.WatermarkStats = true
+
+-- {fps} / {ping} / {time} / {player} / {game} are substituted every second, so
+-- callers can write "Hub | {fps} fps | {ping} ms" once and forget about it.
+local function FormatWatermark()
+	local out = watermarkText
+	if not Library.WatermarkStats then
+		return out
+	end
+	local fps = math.floor(Library._fps or 0)
+	local ping = 0
+	pcall(function()
+		if Stats then
+			ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+		end
+	end)
+	out = string.gsub(out, "{fps}", tostring(fps))
+	out = string.gsub(out, "{ping}", tostring(ping))
+	out = string.gsub(out, "{time}", os.date("%H:%M:%S"))
+	out = string.gsub(out, "{player}", LocalPlayer.Name)
+	out = string.gsub(out, "{game}", tostring(game.PlaceId))
+	return out
+end
+
+function Library:SetWatermark(text, icon)
+	watermarkText = text or watermarkText
+	wmLabel.Text = FormatWatermark()
+	if icon then
+		local asset = Library:GetIcon(icon)
+		if asset and wmIcon:IsA("ImageLabel") then
+			wmIcon.Image = asset
+		end
+	end
+	Library:SetWatermarkVisibility(true)
+	return Watermark
+end
+
+function Library:SetWatermarkVisibility(state)
+	if state then
+		Watermark.Visible = true
+		wmScale.Scale = 0.88
+		Watermark.BackgroundTransparency = 1
+		Tween(Watermark, Anim.Smooth, { BackgroundTransparency = 0.05 })
+		TweenRaw(wmScale, Anim.SoftSpring, { Scale = 1 })
+	else
+		Tween(Watermark, Anim.Fast, { BackgroundTransparency = 1 })
+		TweenRaw(wmScale, Anim.Fast, { Scale = 0.9 })
+		task.delay(0.2, function()
+			if Watermark.BackgroundTransparency >= 0.99 then
+				Watermark.Visible = false
+			end
+		end)
+	end
+end
+
+-- One shared frame counter drives both the FPS readout and the 1 Hz refresh.
+do
+	local frames = 0
+	local elapsed = 0
+	Library._fps = 60
+	Connect(RunService.RenderStepped, function(dt)
+		frames = frames + 1
+		elapsed = elapsed + dt
+		if elapsed >= 1 then
+			Library._fps = frames / elapsed
+			frames = 0
+			elapsed = 0
+			if Watermark.Visible then
+				wmLabel.Text = FormatWatermark()
+			end
+		end
+	end)
+end
+
+--============================================================================
+-- SECTION 12 — Dragging and resizing
+--============================================================================
+
+-- Drag `target` by grabbing `handle`. `onLift` fires when the drag starts and
+-- `onDrop` when it ends, which the window uses to grow its shadow mid-drag.
+-- Motion is eased: the pointer sets a target offset and a per-frame step glides
+-- the window toward it, so dragging feels smooth instead of snapping frame to
+-- frame. The step is only connected while a drag is in flight, so there is no
+-- idle per-frame cost, and it self-disconnects (no leaked connections).
+local function MakeDraggable(handle, target, onLift, onDrop)
+	local DRAG_SPEED = 20 -- higher = snappier follow, lower = floatier
+	local dragging = false
+	local dragStart = Vector3.new()
+	local startPos = target.Position
+	local scaleX, scaleY = startPos.X.Scale, startPos.Y.Scale
+	local tarX, tarY = startPos.X.Offset, startPos.Y.Offset
+	local curX, curY = tarX, tarY
+	local stepConn = nil
+
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+
+	-- Frame-rate independent follow: alpha derived from dt so the feel is the
+	-- same at 30 or 240 fps.
+	local function step(dt)
+		if Library.Unloaded then
+			stopStep()
+			return
+		end
+		local alpha = 1 - math.exp(-dt * DRAG_SPEED)
+		curX = curX + (tarX - curX) * alpha
+		curY = curY + (tarY - curY) * alpha
+		target.Position = UDim2.new(scaleX, curX, scaleY, curY)
+		-- Once the drag has ended and the window has caught up, settle and stop.
+		if not dragging and math.abs(tarX - curX) < 0.5 and math.abs(tarY - curY) < 0.5 then
+			target.Position = UDim2.new(scaleX, tarX, scaleY, tarY)
+			stopStep()
+		end
+	end
+
+	Connect(handle.InputBegan, function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = target.Position
+			scaleX, scaleY = startPos.X.Scale, startPos.Y.Scale
+			tarX, tarY = startPos.X.Offset, startPos.Y.Offset
+			curX, curY = tarX, tarY
+			if onLift then
+				onLift()
+			end
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
+		end
+	end)
+
+	Connect(UserInputService.InputChanged, function(input)
+		if not dragging then
+			return
+		end
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch then
+			local delta = input.Position - dragStart
+			tarX = startPos.X.Offset + delta.X
+			tarY = startPos.Y.Offset + delta.Y
+		end
+	end)
+
+	-- One tracked release handler, instead of a fresh (leaked) connection per
+	-- drag-start like before.
+	Connect(UserInputService.InputEnded, function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			if dragging then
+				dragging = false
+				if onDrop then
+					onDrop()
+				end
+			end
+		end
+	end)
+end
+
+-- Bottom-right grab handle. `sizeTarget` is what gets resized; `gripParent` is
+-- where the visible handle lives (they differ because the window's size lives on
+-- an outer wrapper while the handle must sit inside the clipped card).
+local function MakeResizable(sizeTarget, gripParent, minW, minH, onResize)
+	local grip = New("TextButton", {
+		Name = "ResizeGrip",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -2, 1, -2),
+		Size = UDim2.fromOffset(20, 20),
+		BackgroundColor3 = Library.Scheme.Element,
+		BackgroundTransparency = 1, -- fades in on hover so the handle is findable
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 60,
+		Parent = gripParent,
+	})
+	Corner(Library.Radius.Small, grip)
+	Library:Register(grip, "BackgroundColor3", "Element")
+
+	-- Three stacked diagonal ticks, drawn with plain rotated frames.
+	local ticks = {}
+	local i = 1
+	while i <= 3 do
+		local tick = New("Frame", {
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -2, 1, -2 - (i - 1) * 4),
+			Size = UDim2.fromOffset(3 + (i - 1) * 4, 2),
+			Rotation = -45,
+			BackgroundColor3 = Library.Scheme.OutlineLight,
+			BorderSizePixel = 0,
+			ZIndex = 61,
+			Parent = grip,
+		})
+		Library:Register(tick, "BackgroundColor3", "OutlineLight")
+		ticks[i] = tick
+		i = i + 1
+	end
+
+	local resizing = false
+	local startMouse = Vector2.new()
+	local startSize = sizeTarget.Size
+	local startPos = sizeTarget.Position
+	local stepConn = nil
+
+	local function tintTicks(color)
+		local j = 1
+		while j <= #ticks do
+			TweenRaw(ticks[j], Anim.Fast, { BackgroundColor3 = color })
+			j = j + 1
+		end
+	end
+	local function setIdle()
+		TweenRaw(grip, Anim.Fast, { BackgroundTransparency = 1 })
+		tintTicks(Library.Scheme.OutlineLight)
+	end
+
+	Connect(grip.MouseEnter, function()
+		TweenRaw(grip, Anim.Fast, { BackgroundTransparency = 0.82 })
+		tintTicks(Library.Scheme.Accent)
+	end)
+	Connect(grip.MouseLeave, function()
+		if not resizing then
+			setIdle()
+		end
+	end)
+
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+
+	-- Only runs while a resize is in flight (connected on grab, dropped on
+	-- release), so idle windows pay nothing per frame.
+	local function step()
+		if Library.Unloaded or not resizing then
+			stopStep()
+			return
+		end
+		local now = UserInputService:GetMouseLocation()
+		local dx = now.X - startMouse.X
+		local dy = now.Y - startMouse.Y
+		local newW = math.max(minW, startSize.X.Offset + dx)
+		local newH = math.max(minH, startSize.Y.Offset + dy)
+		-- Actual applied delta after the min clamp. The wrapper is centre-anchored,
+		-- so shifting position by half the growth keeps the top-left corner pinned
+		-- while the bottom-right corner tracks the cursor 1:1.
+		local dW = newW - startSize.X.Offset
+		local dH = newH - startSize.Y.Offset
+		sizeTarget.Size = UDim2.new(0, newW, 0, newH)
+		sizeTarget.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + dW / 2,
+			startPos.Y.Scale,
+			startPos.Y.Offset + dH / 2
+		)
+	end
+
+	Connect(grip.InputBegan, function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			resizing = true
+			startMouse = UserInputService:GetMouseLocation()
+			startSize = sizeTarget.Size
+			startPos = sizeTarget.Position
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
+		end
+	end)
+	Connect(UserInputService.InputEnded, function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			if resizing then
+				resizing = false
+				stopStep()
+				setIdle()
+				if onResize then
+					onResize(sizeTarget.Size)
+				end
+			end
+		end
+	end)
+
+	return grip
+end
+
+--============================================================================
+-- SECTION 13 — Window
+--============================================================================
+
+--[[
+	Library:CreateWindow({
+		Title = "Daycare Hub",
+		Subtitle = "v1.0",
+		Icon = "baby",                       -- Lucide name shown in the badge
+		Size = UDim2.new(0, 1000, 0, 560),   -- big by default; resizable
+		MinSize = Vector2.new(520, 380),
+		Resizable = true,
+		Center = true,
+	})
+]]
+function Library:CreateWindow(opts)
+	opts = opts or {}
+
+	local title = opts.Title or "Vertex"
+	local subtitle = opts.Subtitle or "v" .. Library.Version
+	local size = opts.Size or UDim2.new(0, 1000, 0, 560)
+	local iconName = opts.Icon or "zap"
+	local minSize = opts.MinSize or Vector2.new(520, 360)
+	local resizable = opts.Resizable
+	if resizable == nil then
+		resizable = true
+	end
+
+	-- Optional Theme applied up front: a preset name (string) or a table of
+	-- scheme keys. Doing it before the window is built means every element
+	-- registers straight from the chosen colours, and the instant Refresh
+	-- inside these setters repaints the already-built module UI too.
+	if type(opts.Theme) == "string" then
+		Library:ApplyPreset(opts.Theme, false)
+	elseif type(opts.Theme) == "table" then
+		Library:SetTheme(opts.Theme, false)
+	end
+
+	local Window = {}
+	Window.Tabs = {}
+	Window.ActiveTab = nil
+	Window.Minimized = false
+
+	-- Wrapper is transparent and unclipped so the shadow and glow can bleed
+	-- outside the window. It is also the drag / resize target.
+	local Wrapper = New("Frame", {
+		Name = "VertexWindow",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = opts.Position or UDim2.new(0.5, 0, 0.5, 0),
+		Size = size,
+		BackgroundTransparency = 1,
+		ZIndex = 10,
+		Parent = ScreenGui,
+	})
+	local wrapScale = Scale(Wrapper, 0.86)
+	Window.Wrapper = Wrapper
+	Window.Scale = wrapScale
+
+	local shadow = Shadow(Wrapper, 6, 0.8, Library.Radius.Window)
+	local glow = Glow(Wrapper, Library.Radius.Window, 0.93, 5)
+	-- The shadow's layer set is static, so capture it once instead of
+	-- allocating a fresh children array on every drag lift and drop.
+	local shadowLayers = shadow:GetChildren()
+
+	-- Main is a CanvasGroup when the client supports it, which gives one
+	-- GroupTransparency knob to fade the entire window at once.
+	local Main, isGroup = NewGroup({
+		Name = "Main",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Library.Scheme.Background,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		GroupTransparency = 1,
+		ZIndex = 2,
+		Parent = Wrapper,
+	})
+	Corner(Library.Radius.Window, Main)
+	Library:Register(Main, "BackgroundColor3", "Background")
+	-- Barely-there vertical sheen so the backdrop is not one flat value.
+	Gradient(Main, Color3.fromRGB(255, 255, 255), Color3.fromRGB(232, 232, 240), 90)
+	local mainStroke = Stroke(Main, Library.Scheme.OutlineLight, 1, 0.25)
+	Library:Register(mainStroke, "Color", "OutlineLight")
+	Window.Main = Main
+	Window.Root = Main -- v1 compatibility
+
+	if not isGroup then
+		Main.BackgroundTransparency = 0
+	end
+
+	--------------------------------------------------------------------
+	-- Topbar
+	--------------------------------------------------------------------
+	local Topbar = New("Frame", {
+		Name = "Topbar",
+		Size = UDim2.new(1, 0, 0, Library.Metrics.Topbar),
+		BackgroundColor3 = Library.Scheme.Topbar,
+		BorderSizePixel = 0,
+		ZIndex = 5,
+		Parent = Main,
+	})
+	Library:Register(Topbar, "BackgroundColor3", "Topbar")
+
+	-- Hairline under the topbar, brightest in the middle.
+	local topLine = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 1),
+		Position = UDim2.new(0, 0, 1, -1),
+		BackgroundColor3 = Library.Scheme.OutlineLight,
+		BorderSizePixel = 0,
+		ZIndex = 6,
+		Parent = Topbar,
+	})
+	Library:Register(topLine, "BackgroundColor3", "OutlineLight")
+	New("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.85),
+			NumberSequenceKeypoint.new(0.5, 0.15),
+			NumberSequenceKeypoint.new(1, 0.85),
+		}),
+		Parent = topLine,
+	})
+
+	-- Accent badge holding the window icon.
+	local badge = New("Frame", {
+		Size = UDim2.fromOffset(28, 28),
+		Position = UDim2.new(0, 14, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = Library.Scheme.Accent,
+		BorderSizePixel = 0,
+		ZIndex = 7,
+		Parent = Topbar,
+	})
+	Corner(Library.Radius.Element, badge)
+	Library:Register(badge, "BackgroundColor3", "Accent")
+	local badgeGrad = New("UIGradient", { Rotation = 55, Parent = badge })
+	Library:RegisterGradient(badgeGrad, "Accent", function(accent)
+		return ColorSequence.new(Lighten(accent, 0.22), Shift(Darken(accent, 0.18), 22))
+	end)
+	local badgeScale = Scale(badge, 1)
+	local badgeIcon = Library:CreateIcon(badge, iconName, 17, "Text")
+	badgeIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	badgeIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+	badgeIcon.ZIndex = 8
+	if badgeIcon:IsA("ImageLabel") then
+		badgeIcon.ImageColor3 = Contrast(Library.Scheme.Accent)
+	end
+
+	-- Clicking the badge cycles nothing by default, it just springs — a tiny
+	-- bit of life in the corner of the window.
+	local badgeBtn = New("TextButton", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 9,
+		Parent = badge,
+	})
+	Connect(badgeBtn.MouseButton1Click, function()
+		Punch(badgeScale, 1.22, Anim.Bounce)
+	end)
+
+	local titleCol = New("Frame", {
+		Position = UDim2.new(0, 52, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.new(1, -160, 0, 32),
+		BackgroundTransparency = 1,
+		ZIndex = 7,
+		Parent = Topbar,
+	})
+	New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 1),
+		Parent = titleCol,
+	})
+
+	local titleLabel = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 15),
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = title,
+		TextColor3 = Library.Scheme.Text,
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		LayoutOrder = 1,
+		ZIndex = 7,
+		Parent = titleCol,
+	})
+	Library:Register(titleLabel, "TextColor3", "Text")
+
+	local subLabel = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 13),
+		BackgroundTransparency = 1,
+		Font = Library.Font,
+		Text = subtitle,
+		TextColor3 = Library.Scheme.SubText,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		LayoutOrder = 2,
+		ZIndex = 7,
+		Parent = titleCol,
+	})
+	Library:Register(subLabel, "TextColor3", "SubText")
+
+	Window.SetTitle = function(_, t)
+		titleLabel.Text = t
+	end
+	Window.SetSubtitle = function(_, t)
+		subLabel.Text = t
+	end
+
+	--------------------------------------------------------------------
+	-- Window controls (minimise / close)
+	--------------------------------------------------------------------
+	local controls = New("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.new(0, 0, 0, 26),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1,
+		ZIndex = 8,
+		Parent = Topbar,
+	})
+	New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+		Parent = controls,
+	})
+
+	-- Round icon button used for the topbar controls. Hover fills the circle,
+	-- click ripples, and the icon tints to `hoverKey`.
+	local function ControlButton(order, icon, hoverKey, tip)
+		local holder = New("Frame", {
+			Size = UDim2.fromOffset(26, 26),
+			BackgroundColor3 = Library.Scheme.Element,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ClipsDescendants = true,
+			LayoutOrder = order,
+			ZIndex = 8,
+			Parent = controls,
+		})
+		Pill(holder)
+		Library:Register(holder, "BackgroundColor3", "Element")
+		local holderScale = Scale(holder, 1)
+
+		local img = Library:CreateIcon(holder, icon, 15, "SubText")
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.new(0.5, 0, 0.5, 0)
+		img.ZIndex = 9
+
+		local btn = New("TextButton", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 10,
+			Parent = holder,
+		})
+
+		Connect(btn.MouseEnter, function()
+			Tween(holder, Anim.Fast, { BackgroundTransparency = 0 })
+			if img:IsA("ImageLabel") then
+				TweenRaw(img, Anim.Fast, { ImageColor3 = Library.Scheme[hoverKey] })
+			else
+				TweenRaw(img, Anim.Fast, { TextColor3 = Library.Scheme[hoverKey] })
+			end
+		end)
+		Connect(btn.MouseLeave, function()
+			Tween(holder, Anim.Fast, { BackgroundTransparency = 1 })
+			if img:IsA("ImageLabel") then
+				TweenRaw(img, Anim.Fast, { ImageColor3 = Library.Scheme.SubText })
+			else
+				TweenRaw(img, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+			end
+		end)
+		Connect(btn.MouseButton1Down, function()
+			TweenRaw(holderScale, Anim.Snap, { Scale = 0.88 })
+		end)
+		Connect(btn.MouseButton1Up, function()
+			TweenRaw(holderScale, Anim.Spring, { Scale = 1 })
+		end)
+		Connect(btn.MouseButton1Click, function()
+			Ripple(holder, Library.Scheme[hoverKey], 0.6)
+		end)
+
+		Library:AttachTooltip(btn, tip)
+		return btn, img
+	end
+
+	local minBtn, minIcon = ControlButton(1, "minus", "Accent", "Minimise")
+	local closeBtn = ControlButton(2, "x", "Danger", "Unload")
+
+	Connect(minBtn.MouseButton1Click, function()
+		Window:SetMinimized(not Window.Minimized)
+	end)
+	Connect(closeBtn.MouseButton1Click, function()
+		Library:Unload()
+	end)
+
+	--------------------------------------------------------------------
+	-- Sidebar
+	--------------------------------------------------------------------
+	local Sidebar = New("Frame", {
+		Name = "Sidebar",
+		Position = UDim2.new(0, 0, 0, Library.Metrics.Topbar),
+		Size = UDim2.new(0, Library.Metrics.Sidebar, 1, -Library.Metrics.Topbar),
+		BackgroundColor3 = Library.Scheme.Surface,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		ZIndex = 4,
+		Parent = Main,
+	})
+	Library:Register(Sidebar, "BackgroundColor3", "Surface")
+	Window.Sidebar = Sidebar
+
+	local sideLine = New("Frame", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.new(0, 1, 1, 0),
+		BackgroundColor3 = Library.Scheme.Outline,
+		BorderSizePixel = 0,
+		ZIndex = 5,
+		Parent = Sidebar,
+	})
+	Library:Register(sideLine, "BackgroundColor3", "Outline")
+	New("UIGradient", {
+		Rotation = 90,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(1, 0.9),
+		}),
+		Parent = sideLine,
+	})
+
+	local TabList = New("ScrollingFrame", {
+		Name = "TabList",
+		Size = UDim2.new(1, 0, 1, -30),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ZIndex = 5,
+		Parent = Sidebar,
+	})
+	Pad(TabList, 10, 10)
+	List(TabList, 4)
+	Window.TabList = TabList
+
+	-- Sidebar footer: quiet version stamp so the panel does not end abruptly.
+	local footer = New("TextLabel", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 12, 1, -9),
+		Size = UDim2.new(1, -24, 0, 12),
+		BackgroundTransparency = 1,
+		Font = Library.Font,
+		Text = "Vertex v" .. Library.Version,
+		TextColor3 = Library.Scheme.Placeholder,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 5,
+		Parent = Sidebar,
+	})
+	Library:Register(footer, "TextColor3", "Placeholder")
+
+	--------------------------------------------------------------------
+	-- Content area
+	--------------------------------------------------------------------
+	local Content = New("Frame", {
+		Name = "Content",
+		Position = UDim2.new(0, Library.Metrics.Sidebar, 0, Library.Metrics.Topbar),
+		Size = UDim2.new(1, -Library.Metrics.Sidebar, 1, -Library.Metrics.Topbar),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		ZIndex = 4,
+		Parent = Main,
+	})
+	Window.Container = Content
+
+	--------------------------------------------------------------------
+	-- Drag, resize, minimise
+	--------------------------------------------------------------------
+	-- Lift the shadow while dragging so the window reads as picked up.
+	MakeDraggable(Topbar, Wrapper, function()
+		local i = 1
+		local layers = shadowLayers
+		while i <= #layers do
+			TweenRaw(layers[i], Anim.Smooth, {
+				Size = UDim2.new(1, i * 9, 1, i * 9),
+				Position = UDim2.new(0.5, 0, 0.5, i * 2),
+			})
+			i = i + 1
+		end
+		TweenRaw(glow, Anim.Smooth, { BackgroundTransparency = 0.86 })
+	end, function()
+		local i = 1
+		local layers = shadowLayers
+		while i <= #layers do
+			TweenRaw(layers[i], Anim.Smooth, {
+				Size = UDim2.new(1, i * 6, 1, i * 6),
+				Position = UDim2.new(0.5, 0, 0.5, i),
+			})
+			i = i + 1
+		end
+		TweenRaw(glow, Anim.Smooth, { BackgroundTransparency = 0.93 })
+	end)
+
+	Window.FullSize = size
+	if resizable then
+		-- The grip is drawn inside Main but resizes Wrapper, which owns the size.
+		MakeResizable(Wrapper, Main, minSize.X, minSize.Y, function(newSize)
+			Window.FullSize = newSize
+		end)
+	end
+
+	-- // Bottom drag handle (so you can always grab and move the window)
+	local dragHandle = New("TextButton", {
+		Name = "DragHandle",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -6),   -- 6px above bottom edge
+		Size = UDim2.new(0, 60, 0, 8),
+		BackgroundColor3 = Library.Scheme.Element,
+		BackgroundTransparency = 0.8,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 50,
+		Parent = Main,
+	})
+	Corner(Library.Radius.Small, dragHandle)
+	Library:Register(dragHandle, "BackgroundColor3", "Element")
+
+	-- A thin accent line inside the handle
+	local handleLine = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0.8, 0, 0, 2),
+		BackgroundColor3 = Library.Scheme.OutlineLight,
+		BorderSizePixel = 0,
+		ZIndex = 51,
+		Parent = dragHandle,
+	})
+	Corner(Library.Radius.Tiny, handleLine)
+	Library:Register(handleLine, "BackgroundColor3", "OutlineLight")
+
+	-- Make it draggable (reuses the same shadow lift/drop as the topbar)
+	MakeDraggable(dragHandle, Wrapper, function()
+		local layers = shadowLayers
+		for i, layer in ipairs(layers) do
+			TweenRaw(layer, Anim.Smooth, {
+				Size = UDim2.new(1, i * 9, 1, i * 9),
+				Position = UDim2.new(0.5, 0, 0.5, i * 2),
+			})
+		end
+		TweenRaw(glow, Anim.Smooth, { BackgroundTransparency = 0.86 })
+	end, function()
+		local layers = shadowLayers
+		for i, layer in ipairs(layers) do
+			TweenRaw(layer, Anim.Smooth, {
+				Size = UDim2.new(1, i * 6, 1, i * 6),
+				Position = UDim2.new(0.5, 0, 0.5, i),
+			})
+		end
+		TweenRaw(glow, Anim.Smooth, { BackgroundTransparency = 0.93 })
+	end)
+
+	-- Hover effects
+	Connect(dragHandle.MouseEnter, function()
+		Tween(dragHandle, Anim.Fast, { BackgroundTransparency = 0.4 })
+		TweenRaw(handleLine, Anim.Fast, { BackgroundColor3 = Library.Scheme.Accent })
+	end)
+	Connect(dragHandle.MouseLeave, function()
+		Tween(dragHandle, Anim.Fast, { BackgroundTransparency = 0.8 })
+		TweenRaw(handleLine, Anim.Fast, { BackgroundColor3 = Library.Scheme.OutlineLight })
+	end)
+	Library:AttachTooltip(dragHandle, "Drag window")
+
+	function Window:SetMinimized(state)
+		if state == Window.Minimized then
+			return
+		end
+		Window.Minimized = state
+		if state then
+			Window.FullSize = Wrapper.Size
+			Tween(Wrapper, Anim.Smooth, {
+				Size = UDim2.new(Window.FullSize.X.Scale, Window.FullSize.X.Offset, 0, Library.Metrics.Topbar),
+			})
+			TweenRaw(Sidebar, Anim.Fast, { BackgroundTransparency = 1 })
+			if minIcon:IsA("ImageLabel") then
+				minIcon.Image = Library:GetIcon("plus") or minIcon.Image
+			end
+			dragHandle.Visible = false   -- hide the drag handle
+		else
+			Tween(Wrapper, Anim.SoftSpring, { Size = Window.FullSize })
+			TweenRaw(Sidebar, Anim.Smooth, { BackgroundTransparency = 0.35 })
+			if minIcon:IsA("ImageLabel") then
+				minIcon.Image = Library:GetIcon("minus") or minIcon.Image
+			end
+			dragHandle.Visible = true    -- show it again
+		end
+	end
+
+	-- v1 name kept working.
+	Window.Minimize = Window.SetMinimized
+
+	--------------------------------------------------------------------
+	-- Entrance animation
+	--------------------------------------------------------------------
+	Tween(Wrapper, Anim.SoftSpring, { Size = size })
+	TweenRaw(wrapScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	if isGroup then
+		TweenRaw(Main, Anim.Slow, { GroupTransparency = 0 })
+	end
+	badgeScale.Scale = 0
+	TweenRaw(badgeScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+
+	Window.IsGroup = isGroup
+
+	--------------------------------------------------------------------
+	-- Tabs
+	--------------------------------------------------------------------
+	function Window:AddTab(name, icon, tooltip)
+		local Tab = {}
+		Tab.Name = name
+		Tab.Cards = {}
+		Tab.Index = #Window.Tabs + 1
+
+		local btn = New("TextButton", {
+			Name = "Tab_" .. tostring(name),
+			Size = UDim2.new(1, 0, 0, Library.Metrics.TabH),
+			BackgroundColor3 = Library.Scheme.Element,
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ClipsDescendants = true,
+			ZIndex = 6,
+			Parent = TabList,
+		})
+		Corner(Library.Radius.Element, btn)
+		Library:Register(btn, "BackgroundColor3", "Element")
+
+		-- Accent bar that grows out of the left edge when the tab is active.
+		local indicator = New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 3, 0.5, 0),
+			Size = UDim2.new(0, 3, 0, 0),
+			BackgroundColor3 = Library.Scheme.Accent,
+			BorderSizePixel = 0,
+			ZIndex = 8,
+			Parent = btn,
+		})
+		Pill(indicator)
+		Library:Register(indicator, "BackgroundColor3", "Accent")
+
+		local tabIcon = Library:CreateIcon(btn, icon or "circle", 16, "SubText")
+		tabIcon.AnchorPoint = Vector2.new(0, 0.5)
+		tabIcon.Position = UDim2.new(0, 13, 0.5, 0)
+		tabIcon.ZIndex = 8
+
+		local label = New("TextLabel", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 37, 0.5, 0),
+			Size = UDim2.new(1, -46, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(name),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 8,
+			Parent = btn,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+
+		Library:AttachTooltip(btn, tooltip)
+
+		Tab.Button = btn
+		Tab.Label = label
+		Tab.Icon = tabIcon
+		Tab.Indicator = indicator
+
+		-- Page holding the two scrolling columns.
+		local page = New("Frame", {
+			Name = "Page_" .. tostring(name),
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Visible = false,
+			ZIndex = 4,
+			Parent = Content,
+		})
+		Pad(page, Library.Metrics.PagePad)
+
+		local function MakeColumn(xScale, xOffset)
+			local col = New("ScrollingFrame", {
+				Size = UDim2.new(0.5, -5, 1, 0),
+				Position = UDim2.new(xScale, xOffset, 0, 0),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ScrollBarThickness = 3,
+				ScrollBarImageColor3 = Library.Scheme.Accent,
+				ScrollBarImageTransparency = 0.4,
+				CanvasSize = UDim2.new(0, 0, 0, 0),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ScrollingDirection = Enum.ScrollingDirection.Y,
+				ElasticBehavior = Enum.ElasticBehavior.Never,
+				ZIndex = 4,
+				Parent = page,
+			})
+			List(col, Library.Metrics.CardGap)
+			New("UIPadding", { PaddingBottom = UDim.new(0, 10), Parent = col })
+			Library:Register(col, "ScrollBarImageColor3", "Accent")
+			return col
+		end
+
+		local left = MakeColumn(0, 0)
+		local right = MakeColumn(0.5, 5)
+		Tab.Left = left
+		Tab.Right = right
+		Tab.Page = page
+		Tab.Content = page -- v1 compatibility
+
+		-- Replay the card cascade so switching tabs always feels alive rather
+		-- than just swapping two static screens.
+		local function PlayCascade()
+			local i = 1
+			while i <= #Tab.Cards do
+				local card = Tab.Cards[i]
+				if card.Frame and card.Frame.Parent then
+					card.Scale.Scale = 0.97
+					card.Frame.Position = UDim2.new(0, 18, 0, 0)
+					local delay = (i - 1) * 0.035
+					task.delay(delay, function()
+						if not card.Frame or not card.Frame.Parent then
+							return
+						end
+						TweenRaw(card.Scale, Anim.SoftSpring, { Scale = 1 })
+						TweenRaw(card.Frame, Anim.Smooth, { Position = UDim2.new(0, 0, 0, 0) })
+					end)
+				end
+				i = i + 1
+			end
+		end
+		Tab.PlayCascade = PlayCascade
+
+		-- Paint one tab button for its current state.
+		local function PaintTab(active, hovering)
+			if active then
+				Tween(btn, Anim.Fast, { BackgroundTransparency = 0.12 })
+				TweenRaw(indicator, Anim.Spring, { Size = UDim2.new(0, 3, 0, 18) })
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+				if tabIcon:IsA("ImageLabel") then
+					TweenRaw(tabIcon, Anim.Fast, { ImageColor3 = Library.Scheme.Accent })
+				else
+					TweenRaw(tabIcon, Anim.Fast, { TextColor3 = Library.Scheme.Accent })
+				end
+			else
+				local alpha = 1
+				if hovering then
+					alpha = 0.55
+				end
+				Tween(btn, Anim.Fast, { BackgroundTransparency = alpha })
+				TweenRaw(indicator, Anim.Fast, { Size = UDim2.new(0, 3, 0, 0) })
+				local textKey = "SubText"
+				if hovering then
+					textKey = "Text"
+				end
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme[textKey] })
+				if tabIcon:IsA("ImageLabel") then
+					TweenRaw(tabIcon, Anim.Fast, { ImageColor3 = Library.Scheme[textKey] })
+				else
+					TweenRaw(tabIcon, Anim.Fast, { TextColor3 = Library.Scheme[textKey] })
+				end
+			end
+		end
+
+		function Tab:Select()
+			if Window.ActiveTab == Tab then
+				return
+			end
+			local i = 1
+			while i <= #Window.Tabs do
+				local other = Window.Tabs[i]
+				if other ~= Tab then
+					other.Page.Visible = false
+					other.Paint(false, false)
+				end
+				i = i + 1
+			end
+			page.Visible = true
+			PaintTab(true, false)
+			Window.ActiveTab = Tab
+			PlayCascade()
+		end
+
+		Tab.Paint = PaintTab
+
+		Connect(btn.MouseEnter, function()
+			if Window.ActiveTab ~= Tab then
+				PaintTab(false, true)
+			end
+		end)
+		Connect(btn.MouseLeave, function()
+			if Window.ActiveTab ~= Tab then
+				PaintTab(false, false)
+			end
+		end)
+		Connect(btn.MouseButton1Click, function()
+			if Window.ActiveTab ~= Tab then
+				Ripple(btn, Library.Scheme.Accent, 0.85)
+			end
+			Tab:Select()
+		end)
+
+		function Tab:AddLeftGroupbox(gbTitle, gbIcon)
+			return Library:_CreateGroupbox(left, gbTitle, gbIcon, Tab)
+		end
+		function Tab:AddRightGroupbox(gbTitle, gbIcon)
+			return Library:_CreateGroupbox(right, gbTitle, gbIcon, Tab)
+		end
+		Tab.AddGroupbox = Tab.AddLeftGroupbox
+
+		table.insert(Window.Tabs, Tab)
+		if #Window.Tabs == 1 then
+			Tab:Select()
+		else
+			PaintTab(false, false)
+		end
+		return Tab
+	end
+
+	function Window:SelectTab(i)
+		if Window.Tabs[i] then
+			Window.Tabs[i]:Select()
+		end
+	end
+
+	-- Swap the whole colour scheme at runtime. Accepts a preset name (string)
+	-- or a table of scheme keys, matching the Theme option on CreateWindow.
+	-- Animates by default so a live theme change eases in.
+	function Window:ModifyTheme(theme, animate)
+		if animate == nil then
+			animate = true
+		end
+		if type(theme) == "string" then
+			Library:ApplyPreset(theme, animate)
+		elseif type(theme) == "table" then
+			Library:SetTheme(theme, animate)
+		end
+		return Window
+	end
+
+	table.insert(Library.Windows, Window)
+	return Window
+end
+
+--============================================================================
+-- SECTION 14 — Element signal helper
+--============================================================================
+
+-- Minimal signal. Every value element exposes :OnChanged through one of these.
+local function MakeSignal()
+	local handlers = {}
+	local sig = {}
+	function sig:Connect(fn)
+		table.insert(handlers, fn)
+		return fn
+	end
+	function sig:Fire(...)
+		local i = 1
+		while i <= #handlers do
+			task.spawn(handlers[i], ...)
+			i = i + 1
+		end
+	end
+	return sig
+end
+
+--============================================================================
+-- SECTION 15 — Groupbox (card)
+--============================================================================
+
+function Library:_CreateGroupbox(column, title, iconName, owningTab)
+	local Groupbox = {}
+
+	-- Wrapper is the layout item, so the card inside is free to slide during the
+	-- cascade animation without the list re-flowing. LayoutOrder is explicit
+	-- because equal orders are resolved by name, which would scramble cards.
+	-- A running per-column counter (stored as an attribute) sets the order
+	-- without allocating a children array on every card, and never collides
+	-- even if a card is later removed.
+	local cardOrder = (column:GetAttribute("VertexCardOrder") or 0) + 1
+	column:SetAttribute("VertexCardOrder", cardOrder)
+	local wrapper = New("Frame", {
+		Name = "CardWrap",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = cardOrder,
+		Parent = column,
+	})
+
+	-- The card height is driven explicitly (header + body) rather than by
+	-- AutomaticSize: AutomaticSize grows to fit a child but will not reliably
+	-- shrink to follow a ClipsDescendants child that collapses, which left
+	-- collapsed cards stuck at full height. The body height is mirrored from
+	-- the content below and the collapse animation tweens it to the header.
+	local frame = New("Frame", {
+		Name = "Card",
+		Size = UDim2.new(1, 0, 0, 38),
+		BackgroundColor3 = Library.Scheme.Surface,
+		BorderSizePixel = 0,
+		ClipsDescendants = false,
+		Parent = wrapper,
+	})
+	Corner(Library.Radius.Card, frame)
+	Library:Register(frame, "BackgroundColor3", "Surface")
+	Gradient(frame, Color3.fromRGB(255, 255, 255), Color3.fromRGB(235, 235, 243), 90)
+	local cardScale = Scale(frame, 1)
+	local cardStroke = Stroke(frame, Library.Scheme.Outline, 1, 0)
+	Library:Register(cardStroke, "Color", "Outline")
+
+	if owningTab then
+		table.insert(owningTab.Cards, { Frame = frame, Scale = cardScale })
+	end
+
+	--------------------------------------------------------------------
+	-- Header
+	--------------------------------------------------------------------
+	local header = New("Frame", {
+		Name = "Header",
+		Size = UDim2.new(1, 0, 0, 38),
+		BackgroundTransparency = 1,
+		Parent = frame,
+	})
+
+	local headerX = 13
+	if iconName then
+		local hIcon = Library:CreateIcon(header, iconName, 15, "Accent")
+		hIcon.AnchorPoint = Vector2.new(0, 0.5)
+		hIcon.Position = UDim2.new(0, 13, 0.5, 2)
+		headerX = 35
+	else
+		-- No icon: a small accent dot keeps the header from looking bare.
+		local dot = New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 13, 0.5, 2),
+			Size = UDim2.fromOffset(6, 6),
+			BackgroundColor3 = Library.Scheme.Accent,
+			BorderSizePixel = 0,
+			Parent = header,
+		})
+		Pill(dot)
+		Library:Register(dot, "BackgroundColor3", "Accent")
+		headerX = 27
+	end
+
+	local headerLabel = New("TextLabel", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, headerX, 0.5, 2),
+		Size = UDim2.new(1, -headerX - 36, 0, 16),
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = title or "Groupbox",
+		TextColor3 = Library.Scheme.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = header,
+	})
+	Library:Register(headerLabel, "TextColor3", "Text")
+
+	--------------------------------------------------------------------
+	-- Collapsible body
+	--------------------------------------------------------------------
+	-- The clipper's height is mirrored from the container, so collapsing is a
+	-- single tween on the clipper while the content keeps auto-sizing normally.
+	local clipper = New("Frame", {
+		Name = "Body",
+		Position = UDim2.new(0, 11, 0, 38),
+		Size = UDim2.new(1, -22, 0, 0),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Parent = frame,
+	})
+
+	local container = New("Frame", {
+		Name = "Items",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = clipper,
+	})
+	List(container, Library.Metrics.RowGap)
+	New("UIPadding", { PaddingBottom = UDim.new(0, 13), Parent = container })
+
+	local collapsed = false
+	local contentHeight = 0
+
+	Connect(container:GetPropertyChangedSignal("AbsoluteSize"), function()
+		contentHeight = container.AbsoluteSize.Y
+		if not collapsed then
+			clipper.Size = UDim2.new(1, -22, 0, contentHeight)
+			frame.Size = UDim2.new(1, 0, 0, 38 + contentHeight)
+		end
+	end)
+
+	local chevron = Library:CreateIcon(header, "chevron-down", 15, "Placeholder")
+	chevron.AnchorPoint = Vector2.new(1, 0.5)
+	chevron.Position = UDim2.new(1, -13, 0.5, 2)
+
+	local headerBtn = New("TextButton", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = header,
+	})
+	Library:AttachTooltip(headerBtn, "Click to collapse")
+
+	function Groupbox:SetCollapsed(state)
+		collapsed = state
+		if state then
+			Tween(clipper, Anim.Smooth, { Size = UDim2.new(1, -22, 0, 0) })
+			Tween(frame, Anim.Smooth, { Size = UDim2.new(1, 0, 0, 38) })
+			TweenRaw(chevron, Anim.Smooth, { Rotation = -90 })
+		else
+			Tween(clipper, Anim.Smooth, { Size = UDim2.new(1, -22, 0, contentHeight) })
+			Tween(frame, Anim.Smooth, { Size = UDim2.new(1, 0, 0, 38 + contentHeight) })
+			TweenRaw(chevron, Anim.Smooth, { Rotation = 0 })
+		end
+	end
+
+	Connect(headerBtn.MouseButton1Click, function()
+		Groupbox:SetCollapsed(not collapsed)
+	end)
+	Connect(headerBtn.MouseEnter, function()
+		Tween(cardStroke, Anim.Fast, { Color = Library.Scheme.OutlineLight })
+		if chevron:IsA("ImageLabel") then
+			TweenRaw(chevron, Anim.Fast, { ImageColor3 = Library.Scheme.Text })
+		end
+	end)
+	Connect(headerBtn.MouseLeave, function()
+		Tween(cardStroke, Anim.Fast, { Color = Library.Scheme.Outline })
+		if chevron:IsA("ImageLabel") then
+			TweenRaw(chevron, Anim.Fast, { ImageColor3 = Library.Scheme.Placeholder })
+		end
+	end)
+
+	Groupbox.Frame = frame
+	Groupbox.Wrapper = wrapper
+	Groupbox.Container = container
+	Groupbox.Header = headerLabel
+
+	function Groupbox:SetTitle(t)
+		headerLabel.Text = t
+	end
+
+	-- Base row for one element. Rows are plain transparent frames so the list
+	-- layout can measure them without any extra bookkeeping.
+	local rowIndex = 0
+	local function Row(height, auto)
+		rowIndex = rowIndex + 1
+		local r = New("Frame", {
+			Name = "Row" .. tostring(rowIndex),
+			Size = UDim2.new(1, 0, 0, height or Library.Metrics.ToggleRowH),
+			BackgroundTransparency = 1,
+			LayoutOrder = rowIndex,
+			Parent = container,
+		})
+		if auto then
+			r.AutomaticSize = Enum.AutomaticSize.Y
+		end
+		return r
+	end
+	Groupbox.Row = Row
+
+	--------------------------------------------------------------------
+	-- Label
+	--------------------------------------------------------------------
+	function Groupbox:AddLabel(a, b)
+		local text, wrap, iconName
+		if typeof(a) == "table" then
+			text = a.Text
+			wrap = a.Wrap
+			iconName = a.Icon
+		else
+			text = a
+			wrap = b
+		end
+
+		local row = Row(16, wrap and true or false)
+		local textX = 0
+		if iconName then
+			local ic = Library:CreateIcon(row, iconName, 14, "Accent")
+			ic.AnchorPoint = Vector2.new(0, 0)
+			ic.Position = UDim2.new(0, 0, 0, 1)
+			textX = 20
+		end
+
+		local lbl = New("TextLabel", {
+			Position = UDim2.new(0, textX, 0, 0),
+			Size = UDim2.new(1, -textX, 0, 16),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text or ""),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextWrapped = wrap and true or false,
+			LineHeight = 1.2,
+			Parent = row,
+		})
+		if wrap then
+			lbl.AutomaticSize = Enum.AutomaticSize.Y
+		end
+		Library:Register(lbl, "TextColor3", "SubText")
+
+		local obj = { Type = "Label" }
+		function obj:SetText(t)
+			lbl.Text = tostring(t)
+		end
+		function obj:SetColor(key)
+			lbl.TextColor3 = Library.Scheme[key] or Library.Scheme.SubText
+		end
+		obj.Instance = lbl
+		return obj
+	end
+
+	--------------------------------------------------------------------
+	-- Divider
+	--------------------------------------------------------------------
+	function Groupbox:AddDivider(text)
+		local row = Row(12)
+
+		if text then
+			-- Labelled divider: a line, the caption, then a line.
+			local caption = New("TextLabel", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				Size = UDim2.new(0, 0, 0, 12),
+				AutomaticSize = Enum.AutomaticSize.X,
+				BackgroundTransparency = 1,
+				Font = Library.FontBold,
+				Text = string.upper(tostring(text)),
+				TextColor3 = Library.Scheme.Placeholder,
+				TextSize = 10,
+				Parent = row,
+			})
+			Library:Register(caption, "TextColor3", "Placeholder")
+
+			local function side(anchor, xPos)
+				local line = New("Frame", {
+					AnchorPoint = Vector2.new(anchor, 0.5),
+					Position = UDim2.new(xPos, 0, 0.5, 0),
+					Size = UDim2.new(0.5, -34, 0, 1),
+					BackgroundColor3 = Library.Scheme.Outline,
+					BorderSizePixel = 0,
+					Parent = row,
+				})
+				Library:Register(line, "BackgroundColor3", "Outline")
+				FadeGradient(line, anchor == 0 and 0 or 180, 0.9, 0.15)
+				return line
+			end
+			side(0, 0)
+			side(1, 1)
+		else
+			local line = New("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				Size = UDim2.new(1, 0, 0, 1),
+				BackgroundColor3 = Library.Scheme.Outline,
+				BorderSizePixel = 0,
+				Parent = row,
+			})
+			Library:Register(line, "BackgroundColor3", "Outline")
+			New("UIGradient", {
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.9),
+					NumberSequenceKeypoint.new(0.5, 0.1),
+					NumberSequenceKeypoint.new(1, 0.9),
+				}),
+				Parent = line,
+			})
+		end
+		return { Type = "Divider", Instance = row }
+	end
+
+	--------------------------------------------------------------------
+	-- Button
+	--------------------------------------------------------------------
+	--[[
+		Groupbox:AddButton("Collect all", function() end)
+		Groupbox:AddButton({
+			Text = "Reset save",
+			Func = function() end,
+			Icon = "rotate-cw",
+			Danger = true,          -- paints it red
+			DoubleClick = true,     -- requires a confirming second click
+			Tooltip = "Wipes progress",
+		})
+	]]
+	function Groupbox:AddButton(a, b)
+		local o = a
+		if typeof(a) ~= "table" then
+			o = { Text = a, Func = b }
+		end
+		local text = o.Text or "Button"
+		local callback = o.Func or o.Callback or function() end
+		local accentKey = "Accent"
+		if o.Danger then
+			accentKey = "Danger"
+		end
+
+		local btn = New("TextButton", {
+			Name = "Button",
+			Size = UDim2.new(1, 0, 0, Library.Metrics.ButtonH),
+			BackgroundColor3 = Library.Scheme.Element,
+			Text = "",
+			AutoButtonColor = false,
+			ClipsDescendants = true,
+			LayoutOrder = rowIndex + 1,
+			Parent = container,
+		})
+		rowIndex = rowIndex + 1
+		Corner(Library.Radius.Element, btn)
+		Library:Register(btn, "BackgroundColor3", "Element")
+		local btnScale = Scale(btn, 1)
+		local btnStroke = Stroke(btn, Library.Scheme.Outline, 1, 0)
+		Library:Register(btnStroke, "Color", "Outline")
+
+		-- Accent wash that fades in behind the label on hover.
+		local wash = New("Frame", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundColor3 = Library.Scheme[accentKey],
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = btn,
+		})
+		Corner(Library.Radius.Element, wash)
+		Library:Register(wash, "BackgroundColor3", accentKey)
+
+		local inner = New("Frame", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			ZIndex = 4,
+			Parent = btn,
+		})
+		New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 7),
+			Parent = inner,
+		})
+
+		local icon = nil
+		if o.Icon then
+			icon = Library:CreateIcon(inner, o.Icon, 15, "Text", 1)
+			icon.ZIndex = 5
+		end
+
+		local label = New("TextLabel", {
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text),
+			TextColor3 = Library.Scheme.Text,
+			TextSize = 13,
+			LayoutOrder = 2,
+			ZIndex = 5,
+			Parent = inner,
+		})
+		Library:Register(label, "TextColor3", "Text")
+
+		Library:AttachTooltip(btn, o.Tooltip)
+
+		local confirming = false
+		local confirmToken = 0
+
+		Connect(btn.MouseEnter, function()
+			Tween(btn, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+			TweenRaw(wash, Anim.Fast, { BackgroundTransparency = 0.88 })
+			TweenRaw(btnStroke, Anim.Fast, { Color = Library.Scheme[accentKey], Transparency = 0.45 })
+		end)
+		Connect(btn.MouseLeave, function()
+			Tween(btn, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			TweenRaw(wash, Anim.Fast, { BackgroundTransparency = 1 })
+			TweenRaw(btnStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+		end)
+		Connect(btn.MouseButton1Down, function()
+			TweenRaw(btnScale, Anim.Snap, { Scale = 0.975 })
+		end)
+		Connect(btn.MouseButton1Up, function()
+			TweenRaw(btnScale, Anim.Spring, { Scale = 1 })
+		end)
+
+		Connect(btn.MouseButton1Click, function()
+			Ripple(btn, Library.Scheme[accentKey], 0.68)
+
+			if o.DoubleClick and not confirming then
+				confirming = true
+				confirmToken = confirmToken + 1
+				local token = confirmToken
+				label.Text = "Are you sure?"
+				TweenRaw(btnStroke, Anim.Fast, { Color = Library.Scheme.Warning, Transparency = 0 })
+				task.delay(2.5, function()
+					if token == confirmToken and confirming then
+						confirming = false
+						label.Text = tostring(text)
+						TweenRaw(btnStroke, Anim.Fast, { Color = Library.Scheme.Outline })
+					end
+				end)
+				return
+			end
+
+			confirming = false
+			confirmToken = confirmToken + 1
+			label.Text = tostring(text)
+			task.spawn(callback)
+		end)
+
+		local obj = { Type = "Button", Instance = btn }
+		function obj:SetText(t)
+			text = tostring(t)
+			label.Text = text
+		end
+		function obj:SetIcon(name)
+			if icon and icon:IsA("ImageLabel") then
+				local asset = Library:GetIcon(name)
+				if asset then
+					icon.Image = asset
+				end
+			end
+		end
+		return obj
+	end
+
+	--------------------------------------------------------------------
+	-- Toggle
+	--------------------------------------------------------------------
+	function Groupbox:AddToggle(flag, opts)
+		opts = opts or {}
+		local text = opts.Text or flag
+		local value = opts.Default or false
+		local callback = opts.Callback or function() end
+		Library.Flags[flag] = value
+
+		local row = Row(Library.Metrics.ToggleRowH)
+
+		local click = New("TextButton", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			Parent = row,
+		})
+
+		local labelKey = "SubText"
+		if opts.Risky then
+			labelKey = "Danger"
+		end
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, -60, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text),
+			TextColor3 = Library.Scheme[labelKey],
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", labelKey)
+		Library:AttachTooltip(click, opts.Tooltip)
+
+		-- Right-aligned strip: attached pickers sit left of the switch.
+		local rightHolder = New("Frame", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundTransparency = 1,
+			Parent = row,
+		})
+		New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 6),
+			Parent = rightHolder,
+		})
+
+		local switchWrap = New("Frame", {
+			Size = UDim2.fromOffset(40, 20),
+			BackgroundTransparency = 1,
+			LayoutOrder = 100,
+			Parent = rightHolder,
+		})
+
+		-- Accent halo that only shows while the toggle is on.
+		local ring = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			Size = UDim2.new(1, 8, 1, 8),
+			BackgroundColor3 = Library.Scheme.Accent,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = switchWrap,
+		})
+		Pill(ring)
+		Library:Register(ring, "BackgroundColor3", "Accent")
+
+		local track = New("Frame", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundColor3 = Library.Scheme.Element,
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = switchWrap,
+		})
+		Pill(track)
+		local trackStroke = Stroke(track, Library.Scheme.Outline, 1, 0)
+		Library:Register(trackStroke, "Color", "Outline")
+
+		local trackGrad = New("UIGradient", { Rotation = 25, Enabled = false, Parent = track })
+		Library:RegisterGradient(trackGrad, "Accent", function(accent)
+			return ColorSequence.new(Lighten(accent, 0.18), Shift(accent, 24))
+		end)
+
+		local knob = New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 3, 0.5, 0),
+			Size = UDim2.fromOffset(14, 14),
+			BackgroundColor3 = Color3.fromRGB(248, 248, 252),
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = track,
+		})
+		Pill(knob)
+		local knobScale = Scale(knob, 1)
+
+		local knobTick = Library:CreateIcon(knob, "check", 9, "Accent")
+		knobTick.AnchorPoint = Vector2.new(0.5, 0.5)
+		knobTick.Position = UDim2.new(0.5, 0, 0.5, 0)
+		knobTick.ZIndex = 4
+		if knobTick:IsA("ImageLabel") then
+			knobTick.ImageTransparency = 1
+		else
+			knobTick.TextTransparency = 1
+		end
+
+		local changed = MakeSignal()
+		local toggleObj = { Value = value, Type = "Toggle", Instance = row }
+
+		local function paint(on, instant)
+			-- `instant` must snap *every* property, not just the knob slide.
+			-- Otherwise a Default=true toggle paints its colours over a tween
+			-- during the busy first frame and settles a shade off from a toggle
+			-- switched on by hand, which read as "darker" default toggles.
+			local info = Anim.Spring
+			local fast = Anim.Fast
+			local smooth = Anim.Smooth
+			if instant then
+				info = TweenInfo.new(0, Enum.EasingStyle.Linear)
+				fast = info
+				smooth = info
+			end
+			trackGrad.Enabled = on
+
+			if on then
+				Tween(track, fast, { BackgroundColor3 = Library.Scheme.Accent })
+				TweenRaw(knob, info, { Position = UDim2.new(0, 23, 0.5, 0) })
+				TweenRaw(trackStroke, fast, { Color = Library.Scheme.Accent, Transparency = 0.4 })
+				TweenRaw(ring, smooth, { BackgroundTransparency = 0.86 })
+				if knobTick:IsA("ImageLabel") then
+					TweenRaw(knobTick, fast, { ImageTransparency = 0, ImageColor3 = Library.Scheme.Accent })
+				end
+			else
+				Tween(track, fast, { BackgroundColor3 = Library.Scheme.Element })
+				TweenRaw(knob, info, { Position = UDim2.new(0, 3, 0.5, 0) })
+				TweenRaw(trackStroke, fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+				TweenRaw(ring, fast, { BackgroundTransparency = 1 })
+				if knobTick:IsA("ImageLabel") then
+					TweenRaw(knobTick, fast, { ImageTransparency = 1 })
+				end
+			end
+			if not instant then
+				Punch(knobScale, 1.18, Anim.Spring)
+			end
+		end
+
+		local function apply(v, fire, instant)
+			v = v and true or false
+			toggleObj.Value = v
+			Library.Flags[flag] = v
+			paint(v, instant)
+			if fire ~= false then
+				task.spawn(callback, v)
+				changed:Fire(v)
+			end
+		end
+
+		paint(value, true)
+
+		Connect(click.MouseButton1Click, function()
+			apply(not toggleObj.Value)
+		end)
+		Connect(click.MouseEnter, function()
+			if not opts.Risky then
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+			end
+			if not toggleObj.Value then
+				Tween(track, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+			end
+		end)
+		Connect(click.MouseLeave, function()
+			if not opts.Risky then
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+			end
+			if not toggleObj.Value then
+				Tween(track, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			end
+		end)
+
+		function toggleObj:SetValue(v, silent)
+			apply(v, not silent)
+			return toggleObj
+		end
+		function toggleObj:OnChanged(fn)
+			changed:Connect(fn)
+			task.spawn(fn, toggleObj.Value)
+			return toggleObj
+		end
+		-- Attach a colour picker or keybind onto the same row.
+		function toggleObj:AddColorPicker(cpFlag, cpOpts)
+			return Library:_ColorPicker(rightHolder, cpFlag, cpOpts, 1)
+		end
+		function toggleObj:AddKeyPicker(kpFlag, kpOpts)
+			return Library:_KeyPicker(rightHolder, kpFlag, kpOpts, 2)
+		end
+
+		Library.Toggles[flag] = toggleObj
+		return toggleObj
+	end
+
+	--------------------------------------------------------------------
+	-- Slider
+	--------------------------------------------------------------------
+	function Groupbox:AddSlider(flag, opts)
+		opts = opts or {}
+		local text = opts.Text or flag
+		local min = opts.Min or 0
+		local max = opts.Max or 100
+		local decimals = opts.Decimals or 0
+		local suffix = opts.Suffix or ""
+		local prefix = opts.Prefix or ""
+		local value = opts.Default or min
+		local callback = opts.Callback or function() end
+
+		if max <= min then
+			max = min + 1
+		end
+
+		-- Round to the configured decimal places without string.format, so the
+		-- value stays a real number for callbacks and configs.
+		local factor = 1
+		local d = 0
+		while d < decimals do
+			factor = factor * 10
+			d = d + 1
+		end
+		local function round(v)
+			return math.floor(v * factor + 0.5) / factor
+		end
+
+		value = math.clamp(round(value), min, max)
+		Library.Flags[flag] = value
+
+		local row = Row(Library.Metrics.SliderRowH)
+
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, -90, 0, 15),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+
+		-- Value chip on the right, so the number always has a home.
+		local chip = New("Frame", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, 0, 0, -1),
+			Size = UDim2.new(0, 0, 0, 18),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundColor3 = Library.Scheme.Element,
+			BorderSizePixel = 0,
+			Parent = row,
+		})
+		Corner(Library.Radius.Small, chip)
+		Library:Register(chip, "BackgroundColor3", "Element")
+		local chipScale = Scale(chip, 1)
+		Pad(chip, 0, 7)
+
+		local valueLabel = New("TextLabel", {
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundTransparency = 1,
+			Font = Library.FontBold,
+			Text = prefix .. tostring(value) .. suffix,
+			TextColor3 = Library.Scheme.Accent,
+			TextSize = 12,
+			Parent = chip,
+		})
+		Library:Register(valueLabel, "TextColor3", "Accent")
+
+		Library:AttachTooltip(row, opts.Tooltip)
+
+		-- Generous invisible hit area: the visible track is 6px tall, but you can
+		-- grab it anywhere in a 20px band.
+		local hit = New("TextButton", {
+			Position = UDim2.new(0, 0, 0, 20),
+			Size = UDim2.new(1, 0, 0, 22),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			Parent = row,
+		})
+
+		-- The track is inset by the knob's radius on each side so the round knob
+		-- stays fully inside the card at the min/max ends instead of spilling
+		-- past the groupbox's clip boundary. readMouse() uses the track's own
+		-- AbsoluteSize/Position, so the 0..1 ratio still maps to the visible bar.
+		local track = New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 7, 0.5, 0),
+			Size = UDim2.new(1, -14, 0, 6),
+			BackgroundColor3 = Library.Scheme.Element,
+			BorderSizePixel = 0,
+			Parent = hit,
+		})
+		Pill(track)
+		Library:Register(track, "BackgroundColor3", "Element")
+
+		local startRatio = (value - min) / (max - min)
+
+		local fill = New("Frame", {
+			Size = UDim2.new(startRatio, 0, 1, 0),
+			BackgroundColor3 = Library.Scheme.Accent,
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = track,
+		})
+		Pill(fill)
+		Library:Register(fill, "BackgroundColor3", "Accent")
+		local fillGrad = New("UIGradient", { Parent = fill })
+		Library:RegisterGradient(fillGrad, "Accent", function(accent)
+			return ColorSequence.new(Shift(accent, -18), Lighten(accent, 0.22))
+		end)
+
+		local knob = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(startRatio, 0, 0.5, 0),
+			Size = UDim2.fromOffset(13, 13),
+			BackgroundColor3 = Color3.fromRGB(250, 250, 254),
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = track,
+		})
+		Pill(knob)
+		local knobScale = Scale(knob, 1)
+		local knobStroke = Stroke(knob, Library.Scheme.Accent, 2, 0.15)
+		Library:Register(knobStroke, "Color", "Accent")
+
+		local sliderObj = { Value = value, Type = "Slider", Instance = row }
+		local changed = MakeSignal()
+		local dragging = false
+		local stepConn = nil
+
+		local function set(v, fire, instant)
+			v = math.clamp(round(v), min, max)
+			local isNew = v ~= sliderObj.Value
+			sliderObj.Value = v
+			Library.Flags[flag] = v
+			valueLabel.Text = prefix .. tostring(v) .. suffix
+
+			local ratio = (v - min) / (max - min)
+			if instant then
+				fill.Size = UDim2.new(ratio, 0, 1, 0)
+				knob.Position = UDim2.new(ratio, 0, 0.5, 0)
+			else
+				Tween(fill, Anim.Fast, { Size = UDim2.new(ratio, 0, 1, 0) })
+				Tween(knob, Anim.Fast, { Position = UDim2.new(ratio, 0, 0.5, 0) })
+			end
+			if isNew and not dragging then
+				Punch(chipScale, 1.1, Anim.Spring)
+			end
+			-- readMouse() calls set() every frame during a drag, so while dragging
+			-- only fire on an actual value change (avoids spawning a thread and
+			-- running the callback + signal many times a second for no movement).
+			-- Non-drag paths (SetValue, config load) keep firing unconditionally.
+			if fire ~= false and (isNew or not dragging) then
+				task.spawn(callback, v)
+				changed:Fire(v)
+			end
+		end
+
+		local function readMouse()
+			local width = track.AbsoluteSize.X
+			if width <= 0 then
+				return
+			end
+			local ratio = math.clamp((Mouse.X - track.AbsolutePosition.X) / width, 0, 1)
+			set(min + (max - min) * ratio, true, true)
+		end
+
+		-- The follow loop only runs while the knob is held: connected on grab,
+		-- dropped on release, so idle sliders cost nothing per frame.
+		local function stopStep()
+			if stepConn then
+				stepConn:Disconnect()
+				stepConn = nil
+			end
+		end
+		local function step()
+			if Library.Unloaded or not dragging then
+				stopStep()
+				return
+			end
+			readMouse()
+		end
+
+		Connect(hit.InputBegan, function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+				dragging = true
+				TweenRaw(knobScale, Anim.Spring, { Scale = 1.35 })
+				TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 8) })
+				readMouse()
+				if not stepConn then
+					stepConn = RunService.RenderStepped:Connect(step)
+				end
+			end
+		end)
+		Connect(UserInputService.InputEnded, function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+				if dragging then
+					TweenRaw(knobScale, Anim.Spring, { Scale = 1 })
+					TweenRaw(track, Anim.Fast, { Size = UDim2.new(1, -14, 0, 6) })
+				end
+				dragging = false
+				stopStep()
+			end
+		end)
+		Connect(hit.MouseEnter, function()
+			if not dragging then
+				TweenRaw(knobScale, Anim.Fast, { Scale = 1.18 })
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+			end
+		end)
+		Connect(hit.MouseLeave, function()
+			if not dragging then
+				TweenRaw(knobScale, Anim.Fast, { Scale = 1 })
+				TweenRaw(label, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+			end
+		end)
+
+		function sliderObj:SetValue(v, silent)
+			set(v, not silent)
+			return sliderObj
+		end
+		function sliderObj:SetMin(v)
+			min = v
+			set(sliderObj.Value, false)
+		end
+		function sliderObj:SetMax(v)
+			max = v
+			set(sliderObj.Value, false)
+		end
+		function sliderObj:OnChanged(fn)
+			changed:Connect(fn)
+			task.spawn(fn, sliderObj.Value)
+			return sliderObj
+		end
+
+		Library.Options[flag] = sliderObj
+		return sliderObj
+	end
+
+	--------------------------------------------------------------------
+	-- Input (textbox)
+	--------------------------------------------------------------------
+	function Groupbox:AddInput(flag, opts)
+		opts = opts or {}
+		local text = opts.Text or flag
+		local numeric = opts.Numeric or false
+		local callback = opts.Callback or function() end
+		local value = opts.Default or ""
+		Library.Flags[flag] = value
+
+		local row = Row(Library.Metrics.FieldRowH)
+
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+
+		local field = New("Frame", {
+			Position = UDim2.new(0, 0, 0, 18),
+			Size = UDim2.new(1, 0, 0, Library.Metrics.FieldH),
+			BackgroundColor3 = Library.Scheme.Element,
+			BorderSizePixel = 0,
+			Parent = row,
+		})
+		Corner(Library.Radius.Element, field)
+		Library:Register(field, "BackgroundColor3", "Element")
+		local fieldStroke = Stroke(field, Library.Scheme.Outline, 1, 0)
+		Library:Register(fieldStroke, "Color", "Outline")
+
+		-- Accent underline that expands from the centre while focused.
+		local underline = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -1),
+			Size = UDim2.new(0, 0, 0, 2),
+			BackgroundColor3 = Library.Scheme.Accent,
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = field,
+		})
+		Pill(underline)
+		Library:Register(underline, "BackgroundColor3", "Accent")
+
+		local textX = 10
+		if opts.Icon then
+			local ic = Library:CreateIcon(field, opts.Icon, 14, "Placeholder")
+			ic.AnchorPoint = Vector2.new(0, 0.5)
+			ic.Position = UDim2.new(0, 9, 0.5, 0)
+			ic.ZIndex = 3
+			textX = 30
+		end
+
+		local box = New("TextBox", {
+			Position = UDim2.new(0, textX, 0, 0),
+			Size = UDim2.new(1, -textX - 10, 1, 0),
+			BackgroundTransparency = 1,
+			Text = tostring(value),
+			PlaceholderText = opts.Placeholder or "",
+			PlaceholderColor3 = Library.Scheme.Placeholder,
+			Font = Library.Font,
+			TextSize = 12,
+			TextColor3 = Library.Scheme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ClearTextOnFocus = false,
+			ClipsDescendants = true,
+			ZIndex = 4,
+			Parent = field,
+		})
+		Library:Register(box, "TextColor3", "Text")
+		Library:Register(box, "PlaceholderColor3", "Placeholder")
+		Library:AttachTooltip(field, opts.Tooltip)
+
+		local inputObj = { Value = value, Type = "Input", Instance = box }
+		local changed = MakeSignal()
+
+		local function commit(t)
+			if numeric then
+				t = string.gsub(t, "[^%-%.%d]", "")
+				box.Text = t
+			end
+			if opts.MaxLength and #t > opts.MaxLength then
+				t = string.sub(t, 1, opts.MaxLength)
+				box.Text = t
+			end
+			inputObj.Value = t
+			Library.Flags[flag] = t
+			task.spawn(callback, t)
+			changed:Fire(t)
+		end
+
+		Connect(box.Focused, function()
+			Tween(fieldStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0.2 })
+			Tween(field, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+			TweenRaw(underline, Anim.Smooth, { Size = UDim2.new(1, -14, 0, 2) })
+		end)
+		Connect(box.FocusLost, function(enterPressed)
+			Tween(fieldStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+			Tween(field, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			TweenRaw(underline, Anim.Fast, { Size = UDim2.new(0, 0, 0, 2) })
+			commit(box.Text)
+			if enterPressed and opts.Finished then
+				task.spawn(opts.Finished, box.Text)
+			end
+		end)
+		Connect(field.MouseEnter, function()
+			if not box:IsFocused() then
+				Tween(fieldStroke, Anim.Fast, { Color = Library.Scheme.OutlineLight })
+			end
+		end)
+		Connect(field.MouseLeave, function()
+			if not box:IsFocused() then
+				Tween(fieldStroke, Anim.Fast, { Color = Library.Scheme.Outline })
+			end
+		end)
+
+		function inputObj:SetValue(v, silent)
+			box.Text = tostring(v)
+			inputObj.Value = box.Text
+			Library.Flags[flag] = box.Text
+			if not silent then
+				task.spawn(callback, box.Text)
+				changed:Fire(box.Text)
+			end
+			return inputObj
+		end
+		function inputObj:OnChanged(fn)
+			changed:Connect(fn)
+			return inputObj
+		end
+
+		Library.Options[flag] = inputObj
+		return inputObj
+	end
+
+	--------------------------------------------------------------------
+	-- Dropdown
+	--------------------------------------------------------------------
+	function Groupbox:AddDropdown(flag, opts)
+		opts = opts or {}
+		local text = opts.Text or flag
+		local values = opts.Values or {}
+		local multi = opts.Multi or false
+		local searchable = opts.Search
+		local callback = opts.Callback or function() end
+		local maxVisible = opts.MaxVisible or 6
+
+		-- Multi-select stores a set; single-select stores the raw value.
+		local value
+		if multi then
+			value = {}
+			if typeof(opts.Default) == "table" then
+				local i = 1
+				while i <= #opts.Default do
+					value[opts.Default[i]] = true
+					i = i + 1
+				end
+			end
+		else
+			value = opts.Default
+		end
+		Library.Flags[flag] = value
+
+		local row = Row(Library.Metrics.FieldRowH)
+
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 14),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(text),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+
+		local button = New("TextButton", {
+			Position = UDim2.new(0, 0, 0, 18),
+			Size = UDim2.new(1, 0, 0, Library.Metrics.FieldH),
+			BackgroundColor3 = Library.Scheme.Element,
+			Text = "",
+			AutoButtonColor = false,
+			ClipsDescendants = true,
+			Parent = row,
+		})
+		Corner(Library.Radius.Element, button)
+		Library:Register(button, "BackgroundColor3", "Element")
+		local btnStroke = Stroke(button, Library.Scheme.Outline, 1, 0)
+		Library:Register(btnStroke, "Color", "Outline")
+
+		local selLabel = New("TextLabel", {
+			Position = UDim2.new(0, 10, 0, 0),
+			Size = UDim2.new(1, -34, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = "...",
+			TextColor3 = Library.Scheme.Text,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 3,
+			Parent = button,
+		})
+		Library:Register(selLabel, "TextColor3", "Text")
+
+		local chevron = Library:CreateIcon(button, "chevron-down", 14, "SubText")
+		chevron.AnchorPoint = Vector2.new(1, 0.5)
+		chevron.Position = UDim2.new(1, -9, 0.5, 0)
+		chevron.ZIndex = 3
+
+		Library:AttachTooltip(button, opts.Tooltip)
+
+		local dropObj = { Value = value, Type = "Dropdown", Instance = button }
+		local changed = MakeSignal()
+
+		-- Refresh the collapsed button text from the current selection.
+		local function display()
+			if multi then
+				local parts = {}
+				local i = 1
+				while i <= #values do
+					if dropObj.Value[values[i]] then
+						table.insert(parts, tostring(values[i]))
+					end
+					i = i + 1
+				end
+				if #parts == 0 then
+					selLabel.Text = "None"
+					selLabel.TextColor3 = Library.Scheme.Placeholder
+				else
+					selLabel.Text = table.concat(parts, ", ")
+					selLabel.TextColor3 = Library.Scheme.Text
+				end
+			else
+				if dropObj.Value == nil then
+					selLabel.Text = opts.Placeholder or "..."
+					selLabel.TextColor3 = Library.Scheme.Placeholder
+				else
+					selLabel.Text = tostring(dropObj.Value)
+					selLabel.TextColor3 = Library.Scheme.Text
+				end
+			end
+		end
+
+		--------------------------------------------------------------
+		-- Inline expander
+		--------------------------------------------------------------
+		-- The option list lives INSIDE the row (below the button), not in a
+		-- floating popup, so it can never clip past the window: opening grows
+		-- the row, the groupbox container auto-sizes to match, and the tab
+		-- column scrolls to fit. `expand` is the clip window whose height is
+		-- driven by the row; `panel` is the fixed-height surface it reveals.
+		local GAP = 6
+		local rowBase = Library.Metrics.FieldRowH
+
+		local expand = New("Frame", {
+			Name = "Expand",
+			Position = UDim2.new(0, 0, 0, rowBase),
+			Size = UDim2.new(1, 0, 1, -rowBase),
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			Parent = row,
+		})
+
+		local panel = New("Frame", {
+			Name = "Panel",
+			Position = UDim2.new(0, 0, 0, GAP),
+			Size = UDim2.new(1, 0, 0, 0),
+			BackgroundColor3 = Library.Scheme.SurfaceAlt,
+			BorderSizePixel = 0,
+			ClipsDescendants = true,
+			Parent = expand,
+		})
+		Corner(Library.Radius.Element, panel)
+		Library:Register(panel, "BackgroundColor3", "SurfaceAlt")
+		local panelStroke = Stroke(panel, Library.Scheme.Outline, 1, 0.3)
+		Library:Register(panelStroke, "Color", "Outline")
+
+		local searchBox = nil
+		local listTop = 5
+		if searchable then
+			listTop = 34
+			local searchFrame = New("Frame", {
+				Position = UDim2.new(0, 5, 0, 5),
+				Size = UDim2.new(1, -10, 0, 24),
+				BackgroundColor3 = Library.Scheme.Element,
+				BorderSizePixel = 0,
+				Parent = panel,
+			})
+			Corner(Library.Radius.Small, searchFrame)
+			Library:Register(searchFrame, "BackgroundColor3", "Element")
+			local sIcon = Library:CreateIcon(searchFrame, "search", 12, "Placeholder")
+			sIcon.AnchorPoint = Vector2.new(0, 0.5)
+			sIcon.Position = UDim2.new(0, 7, 0.5, 0)
+			searchBox = New("TextBox", {
+				Position = UDim2.new(0, 24, 0, 0),
+				Size = UDim2.new(1, -30, 1, 0),
+				BackgroundTransparency = 1,
+				Text = "",
+				PlaceholderText = "Search...",
+				PlaceholderColor3 = Library.Scheme.Placeholder,
+				Font = Library.Font,
+				TextSize = 12,
+				TextColor3 = Library.Scheme.Text,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ClearTextOnFocus = false,
+				Parent = searchFrame,
+			})
+			Library:Register(searchBox, "TextColor3", "Text")
+			Library:Register(searchBox, "PlaceholderColor3", "Placeholder")
+		end
+
+		local listFrame = New("ScrollingFrame", {
+			Position = UDim2.new(0, 5, 0, listTop),
+			Size = UDim2.new(1, -10, 1, -listTop - 5),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 2,
+			ScrollBarImageColor3 = Library.Scheme.Accent,
+			CanvasSize = UDim2.new(0, 0, 0, 0),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+			ElasticBehavior = Enum.ElasticBehavior.Never,
+			Parent = panel,
+		})
+		List(listFrame, 3)
+		Library:Register(listFrame, "ScrollBarImageColor3", "Accent")
+
+		local optionRows = {}
+
+		-- Build one selectable row. Kept as a closure so paint() can be called
+		-- on every row whenever the selection changes.
+		local function MakeOption(v, index)
+			local ob = New("TextButton", {
+				Name = "Option",
+				Size = UDim2.new(1, 0, 0, 26),
+				BackgroundColor3 = Library.Scheme.Element,
+				BackgroundTransparency = 1,
+				Text = "",
+				AutoButtonColor = false,
+				ClipsDescendants = true,
+				LayoutOrder = index,
+				ZIndex = 203,
+				Parent = listFrame,
+			})
+			Corner(Library.Radius.Small, ob)
+			local obScale = Scale(ob, 1)
+
+			local obLabel = New("TextLabel", {
+				Position = UDim2.new(0, 9, 0, 0),
+				Size = UDim2.new(1, -32, 1, 0),
+				BackgroundTransparency = 1,
+				Font = Library.Font,
+				Text = tostring(v),
+				TextColor3 = Library.Scheme.SubText,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				ZIndex = 204,
+				Parent = ob,
+			})
+
+			local tick = Library:CreateIcon(ob, "check", 13, "Accent")
+			tick.AnchorPoint = Vector2.new(1, 0.5)
+			tick.Position = UDim2.new(1, -8, 0.5, 0)
+			tick.ZIndex = 204
+			if tick:IsA("ImageLabel") then
+				tick.ImageTransparency = 1
+			end
+
+			local function isSelected()
+				if multi then
+					return dropObj.Value[v] == true
+				end
+				return dropObj.Value == v
+			end
+
+			local function paint(hovering)
+				local selected = isSelected()
+				if selected then
+					Tween(ob, Anim.Fast, { BackgroundTransparency = 0.85, BackgroundColor3 = Library.Scheme.Accent })
+					TweenRaw(obLabel, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+					if tick:IsA("ImageLabel") then
+						TweenRaw(tick, Anim.Fast, { ImageTransparency = 0 })
+					end
+				elseif hovering then
+					Tween(ob, Anim.Fast, { BackgroundTransparency = 0.35, BackgroundColor3 = Library.Scheme.ElementHover })
+					TweenRaw(obLabel, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+					if tick:IsA("ImageLabel") then
+						TweenRaw(tick, Anim.Fast, { ImageTransparency = 1 })
+					end
+				else
+					Tween(ob, Anim.Fast, { BackgroundTransparency = 1 })
+					TweenRaw(obLabel, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+					if tick:IsA("ImageLabel") then
+						TweenRaw(tick, Anim.Fast, { ImageTransparency = 1 })
+					end
+				end
+			end
+
+			Connect(ob.MouseEnter, function()
+				paint(true)
+			end)
+			Connect(ob.MouseLeave, function()
+				paint(false)
+			end)
+			Connect(ob.MouseButton1Click, function()
+				Ripple(ob, Library.Scheme.Accent, 0.8)
+				Punch(obScale, 1.03, Anim.Spring)
+				if multi then
+					if dropObj.Value[v] then
+						dropObj.Value[v] = nil
+					else
+						dropObj.Value[v] = true
+					end
+				else
+					dropObj.Value = v
+				end
+				Library.Flags[flag] = dropObj.Value
+				display()
+				local i = 1
+				while i <= #optionRows do
+					optionRows[i].Paint(false)
+					i = i + 1
+				end
+				task.spawn(callback, dropObj.Value)
+				changed:Fire(dropObj.Value)
+				if not multi then
+					dropObj._close()
+				end
+			end)
+
+			return { Button = ob, Label = obLabel, Paint = paint, Scale = obScale, Value = v }
+		end
+
+		local function rebuild()
+			local i = 1
+			while i <= #optionRows do
+				optionRows[i].Button:Destroy()
+				i = i + 1
+			end
+			optionRows = {}
+			i = 1
+			while i <= #values do
+				table.insert(optionRows, MakeOption(values[i], i))
+				i = i + 1
+			end
+		end
+		rebuild()
+		display()
+
+		local isOpen = false
+
+		local function visibleCount()
+			local n = 0
+			local i = 1
+			while i <= #optionRows do
+				if optionRows[i].Button.Visible then
+					n = n + 1
+				end
+				i = i + 1
+			end
+			return n
+		end
+
+		local function popupHeight()
+			local n = visibleCount()
+			if n < 1 then
+				n = 1
+			end
+			if n > maxVisible then
+				n = maxVisible
+			end
+			return n * 29 + 7 + (listTop - 5)
+		end
+
+		function dropObj._close()
+			if not isOpen then
+				return
+			end
+			isOpen = false
+			-- Collapse the row back to just the button. The container auto-sizes
+			-- down and the tab column follows, so nothing is left hanging.
+			Tween(row, Anim.Smooth, { Size = UDim2.new(1, 0, 0, rowBase) })
+			TweenRaw(chevron, Anim.Smooth, { Rotation = 0 })
+			Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+		end
+
+		local function openPopup()
+			-- Only one expander open at a time so rows do not fight for space.
+			local i = 1
+			while i <= #Library.Popups do
+				Library.Popups[i]()
+				i = i + 1
+			end
+			isOpen = true
+
+			-- Size the fixed panel to the current option count, then grow the
+			-- row to reveal it. `expand` clips the panel, so it unfolds cleanly.
+			local h = popupHeight()
+			panel.Size = UDim2.new(1, 0, 0, h)
+			Tween(row, Anim.Smooth, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
+			TweenRaw(chevron, Anim.Smooth, { Rotation = 180 })
+			Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0.25 })
+
+			-- Stagger the rows in so the list unfolds instead of appearing.
+			local n = 1
+			while n <= #optionRows do
+				local rowObj = optionRows[n]
+				if rowObj.Button.Visible then
+					rowObj.Scale.Scale = 0.9
+					local delay = (n - 1) * 0.022
+					task.delay(delay, function()
+						if isOpen then
+							TweenRaw(rowObj.Scale, Anim.Spring, { Scale = 1 })
+						end
+					end)
+				end
+				n = n + 1
+			end
+
+			if searchBox then
+				searchBox.Text = ""
+			end
+		end
+		table.insert(Library.Popups, dropObj._close)
+
+		if searchBox then
+			-- Live filter: hide rows that do not contain the query.
+			Connect(searchBox:GetPropertyChangedSignal("Text"), function()
+				local q = string.lower(searchBox.Text)
+				local i = 1
+				while i <= #optionRows do
+					local rowObj = optionRows[i]
+					local hay = string.lower(tostring(rowObj.Value))
+					rowObj.Button.Visible = (q == "" or string.find(hay, q, 1, true) ~= nil)
+					i = i + 1
+				end
+				local h = popupHeight()
+				panel.Size = UDim2.new(1, 0, 0, h)
+				if isOpen then
+					Tween(row, Anim.Fast, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
+				end
+			end)
+		end
+
+		Connect(button.MouseButton1Click, function()
+			if isOpen then
+				dropObj._close()
+			else
+				openPopup()
+			end
+		end)
+		Connect(button.MouseEnter, function()
+			Tween(button, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+			if not isOpen then
+				Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.OutlineLight })
+			end
+		end)
+		Connect(button.MouseLeave, function()
+			Tween(button, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			if not isOpen then
+				Tween(btnStroke, Anim.Fast, { Color = Library.Scheme.Outline })
+			end
+		end)
+
+		function dropObj:SetValue(v, silent)
+			dropObj.Value = v
+			Library.Flags[flag] = v
+			display()
+			local i = 1
+			while i <= #optionRows do
+				optionRows[i].Paint(false)
+				i = i + 1
+			end
+			if not silent then
+				task.spawn(callback, v)
+				changed:Fire(v)
+			end
+			return dropObj
+		end
+		function dropObj:SetValues(newValues)
+			values = newValues or {}
+			rebuild()
+			display()
+			-- If the list is open while its options change, re-fit the row so the
+			-- expander matches the new option count instead of clipping or gapping.
+			if isOpen then
+				local h = popupHeight()
+				panel.Size = UDim2.new(1, 0, 0, h)
+				Tween(row, Anim.Fast, { Size = UDim2.new(1, 0, 0, rowBase + GAP + h) })
+			end
+			return dropObj
+		end
+		dropObj.SetOptions = dropObj.SetValues
+		function dropObj:GetValues()
+			return values
+		end
+		function dropObj:OnChanged(fn)
+			changed:Connect(fn)
+			task.spawn(fn, dropObj.Value)
+			return dropObj
+		end
+
+		Library.Options[flag] = dropObj
+		return dropObj
+	end
+
+	--------------------------------------------------------------------
+	-- Standalone colour picker row
+	--------------------------------------------------------------------
+	function Groupbox:AddColorPicker(flag, opts)
+		opts = opts or {}
+		local row = Row(Library.Metrics.ToggleRowH)
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, -40, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(opts.Text or flag),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+		Library:AttachTooltip(row, opts.Tooltip)
+		return Library:_ColorPicker(row, flag, opts, 1)
+	end
+
+	--------------------------------------------------------------------
+	-- Standalone keybind row
+	--------------------------------------------------------------------
+	function Groupbox:AddKeybind(flag, opts)
+		opts = opts or {}
+		local row = Row(Library.Metrics.ToggleRowH)
+		local label = New("TextLabel", {
+			Size = UDim2.new(1, -70, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Library.Font,
+			Text = tostring(opts.Text or flag),
+			TextColor3 = Library.Scheme.SubText,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+		Library:Register(label, "TextColor3", "SubText")
+		Library:AttachTooltip(row, opts.Tooltip)
+		return Library:_KeyPicker(row, flag, opts, 1)
+	end
+
+	Groupbox.AddKeyPicker = Groupbox.AddKeybind
+	Groupbox.AddTextbox = Groupbox.AddInput
+
+	return Groupbox
+end
+
+--============================================================================
+-- SECTION 16 — Key picker
+--============================================================================
+
+-- Long enum names would blow out the chip, so shorten the common ones.
+local KeyShortNames = {
+	LeftControl = "LCtrl",
+	RightControl = "RCtrl",
+	LeftShift = "LShift",
+	RightShift = "RShift",
+	LeftAlt = "LAlt",
+	RightAlt = "RAlt",
+	LeftSuper = "LSuper",
+	RightSuper = "RSuper",
+	Backspace = "Bksp",
+	Backquote = "`",
+	Semicolon = ";",
+	Quote = "'",
+	Comma = ",",
+	Period = ".",
+	Slash = "/",
+	BackSlash = "\\",
+	LeftBracket = "[",
+	RightBracket = "]",
+	Minus = "-",
+	Equals = "=",
+	Space = "Space",
+	Return = "Enter",
+	Escape = "Esc",
+	Delete = "Del",
+	PageUp = "PgUp",
+	PageDown = "PgDn",
+	MouseButton1 = "MB1",
+	MouseButton2 = "MB2",
+	MouseButton3 = "MB3",
+	Unknown = "None",
+}
+
+local function KeyLabel(key)
+	if key == nil then
+		return "None"
+	end
+	local name = tostring(key.Name)
+	return KeyShortNames[name] or name
+end
+
+function Library:_KeyPicker(parent, flag, opts, order)
+	opts = opts or {}
+	local key = opts.Default
+	local callback = opts.Callback or function() end
+	Library.Flags[flag] = key
+
+	local chip = New("TextButton", {
+		Name = "KeyChip",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.new(0, 52, 0, 20),
+		BackgroundColor3 = Library.Scheme.Element,
+		Text = "",
+		AutoButtonColor = false,
+		ClipsDescendants = true,
+		LayoutOrder = order or 1,
+		Parent = parent,
+	})
+	Corner(Library.Radius.Small, chip)
+	Library:Register(chip, "BackgroundColor3", "Element")
+	local chipScale = Scale(chip, 1)
+	local chipStroke = Stroke(chip, Library.Scheme.Outline, 1, 0)
+	Library:Register(chipStroke, "Color", "Outline")
+
+	local chipLabel = New("TextLabel", {
+		Size = UDim2.new(1, -6, 1, 0),
+		Position = UDim2.new(0, 3, 0, 0),
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = KeyLabel(key),
+		TextColor3 = Library.Scheme.SubText,
+		TextSize = 11,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 3,
+		Parent = chip,
+	})
+	Library:Register(chipLabel, "TextColor3", "SubText")
+
+	Library:AttachTooltip(chip, "Click, then press a key")
+
+	local keyObj = { Value = key, Type = "KeyPicker", Instance = chip }
+	local changed = MakeSignal()
+	local clicked = MakeSignal()
+	local released = MakeSignal()
+	local listening = false
+
+	local function setKey(k, fire)
+		keyObj.Value = k
+		Library.Flags[flag] = k
+		chipLabel.Text = KeyLabel(k)
+		Punch(chipScale, 1.16, Anim.Spring)
+		if fire ~= false then
+			task.spawn(callback, k)
+			changed:Fire(k)
+		end
+	end
+
+	local function stopListening()
+		listening = false
+		chipLabel.Text = KeyLabel(keyObj.Value)
+		Tween(chip, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+		Tween(chipStroke, Anim.Fast, { Color = Library.Scheme.Outline, Transparency = 0 })
+		TweenRaw(chipLabel, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+	end
+
+	Connect(chip.MouseButton1Click, function()
+		if listening then
+			stopListening()
+			return
+		end
+		listening = true
+		chipLabel.Text = "..."
+		Ripple(chip, Library.Scheme.Accent, 0.7)
+		Tween(chip, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+		Tween(chipStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0 })
+		TweenRaw(chipLabel, Anim.Fast, { TextColor3 = Library.Scheme.Accent })
+
+		-- Gentle pulse so it is obvious the chip is waiting for input.
+		task.spawn(function()
+			while listening and not Library.Unloaded do
+				TweenRaw(chipStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine), { Transparency = 0.65 })
+				task.wait(0.45)
+				if not listening then
+					break
+				end
+				TweenRaw(chipStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine), { Transparency = 0 })
+				task.wait(0.45)
+			end
+		end)
+	end)
+
+	Connect(chip.MouseEnter, function()
+		if not listening then
+			Tween(chip, Anim.Fast, { BackgroundColor3 = Library.Scheme.ElementHover })
+			TweenRaw(chipLabel, Anim.Fast, { TextColor3 = Library.Scheme.Text })
+		end
+	end)
+	Connect(chip.MouseLeave, function()
+		if not listening then
+			Tween(chip, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			TweenRaw(chipLabel, Anim.Fast, { TextColor3 = Library.Scheme.SubText })
+		end
+	end)
+
+	Connect(UserInputService.InputBegan, function(input, gpe)
+		if listening then
+			if input.UserInputType == Enum.UserInputType.Keyboard then
+				-- Escape clears the bind instead of assigning Escape.
+				if input.KeyCode == Enum.KeyCode.Escape then
+					stopListening()
+					setKey(nil)
+					return
+				end
+				stopListening()
+				setKey(input.KeyCode)
+			elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+				stopListening()
+				setKey(input.UserInputType)
+			end
+			return
+		end
+
+		if gpe or keyObj.Value == nil then
+			return
+		end
+		if input.KeyCode == keyObj.Value or input.UserInputType == keyObj.Value then
+			-- Flash the chip so the user can see the bind firing.
+			TweenRaw(chip, Anim.Snap, { BackgroundColor3 = Library.Scheme.Accent })
+			task.delay(0.12, function()
+				TweenRaw(chip, Anim.Fast, { BackgroundColor3 = Library.Scheme.Element })
+			end)
+			clicked:Fire()
+		end
+	end)
+
+	Connect(UserInputService.InputEnded, function(input)
+		if listening or keyObj.Value == nil then
+			return
+		end
+		if input.KeyCode == keyObj.Value or input.UserInputType == keyObj.Value then
+			released:Fire()
+		end
+	end)
+
+	function keyObj:SetValue(k, silent)
+		setKey(k, not silent)
+		return keyObj
+	end
+	function keyObj:OnChanged(fn)
+		changed:Connect(fn)
+		return keyObj
+	end
+	function keyObj:OnClick(fn)
+		clicked:Connect(fn)
+		return keyObj
+	end
+	function keyObj:OnRelease(fn)
+		released:Connect(fn)
+		return keyObj
+	end
+	function keyObj:GetState()
+		if keyObj.Value == nil then
+			return false
+		end
+		local ok, down = pcall(function()
+			return UserInputService:IsKeyDown(keyObj.Value)
+		end)
+		return ok and down or false
+	end
+
+	Library.Options[flag] = keyObj
+	return keyObj
+end
+
+--============================================================================
+-- SECTION 17 — Colour picker
+--============================================================================
+
+-- Quick-pick row shown at the bottom of the picker.
+local SwatchPresets = {
+	Color3.fromRGB(255, 255, 255),
+	Color3.fromRGB(255, 92, 102),
+	Color3.fromRGB(255, 154, 78),
+	Color3.fromRGB(255, 214, 92),
+	Color3.fromRGB(74, 222, 152),
+	Color3.fromRGB(86, 190, 255),
+	Color3.fromRGB(137, 122, 255),
+	Color3.fromRGB(232, 121, 249),
+}
+
+function Library:_ColorPicker(parent, flag, opts, order)
+	opts = opts or {}
+	local color = opts.Default or Color3.fromRGB(137, 122, 255)
+	local callback = opts.Callback or function() end
+	Library.Flags[flag] = color
+
+	local swatch = New("TextButton", {
+		Name = "Swatch",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.new(0, 30, 0, 18),
+		BackgroundColor3 = color,
+		Text = "",
+		AutoButtonColor = false,
+		ClipsDescendants = true,
+		LayoutOrder = order or 1,
+		Parent = parent,
+	})
+	Corner(Library.Radius.Small, swatch)
+	local swatchScale = Scale(swatch, 1)
+	local swatchStroke = Stroke(swatch, Library.Scheme.OutlineLight, 1, 0.2)
+	Library:Register(swatchStroke, "Color", "OutlineLight")
+	-- Diagonal sheen so a flat swatch still reads as a surface.
+	New("UIGradient", {
+		Rotation = 35,
+		Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(214, 214, 224)),
+		Parent = swatch,
+	})
+
+	local cpObj = { Value = color, Type = "ColorPicker", Instance = swatch }
+	local changed = MakeSignal()
+	local h, s, v = color:ToHSV()
+
+	--------------------------------------------------------------
+	-- Popup shell
+	--------------------------------------------------------------
+	local popWrap = New("Frame", {
+		Name = "ColorPopup",
+		Size = UDim2.fromOffset(212, 0),
+		BackgroundTransparency = 1,
+		Visible = false,
+		ZIndex = 220,
+		Parent = ScreenGui,
+	})
+	Shadow(popWrap, 4, 0.86, Library.Radius.Card)
+
+	local popup = New("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Library.Scheme.SurfaceAlt,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 221,
+		Parent = popWrap,
+	})
+	Corner(Library.Radius.Card, popup)
+	Library:Register(popup, "BackgroundColor3", "SurfaceAlt")
+	local popScale = Scale(popup, 1)
+	local popStroke = Stroke(popup, Library.Scheme.Accent, 1, 0.5)
+	Library:Register(popStroke, "Color", "Accent")
+
+	local body = New("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 222,
+		Parent = popup,
+	})
+	Pad(body, 10)
+
+	--------------------------------------------------------------
+	-- Saturation / value field
+	--------------------------------------------------------------
+	local svBox = New("Frame", {
+		Size = UDim2.new(1, 0, 0, 112),
+		BackgroundColor3 = Color3.fromHSV(h, 1, 1),
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 223,
+		Parent = body,
+	})
+	Corner(Library.Radius.Element, svBox)
+
+	-- White overlay fading left to right gives saturation.
+	local satLayer = New("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+		ZIndex = 224,
+		Parent = svBox,
+	})
+	Corner(Library.Radius.Element, satLayer)
+	FadeGradient(satLayer, 0, 0, 1)
+
+	-- Black overlay fading bottom to top gives value.
+	local valLayer = New("Frame", {
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BorderSizePixel = 0,
+		ZIndex = 225,
+		Parent = svBox,
+	})
+	Corner(Library.Radius.Element, valLayer)
+	FadeGradient(valLayer, 90, 1, 0)
+
+	local svCursor = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(11, 11),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = 226,
+		Parent = svBox,
+	})
+	Pill(svCursor)
+	local svRing = Stroke(svCursor, Color3.fromRGB(255, 255, 255), 2, 0)
+	local svCursorScale = Scale(svCursor, 1)
+
+	--------------------------------------------------------------
+	-- Hue strip
+	--------------------------------------------------------------
+	local hueBar = New("Frame", {
+		Position = UDim2.new(0, 0, 0, 120),
+		Size = UDim2.new(1, 0, 0, 12),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+		ZIndex = 223,
+		Parent = body,
+	})
+	Pill(hueBar)
+	New("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+			ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+			ColorSequenceKeypoint.new(0.34, Color3.fromRGB(0, 255, 0)),
+			ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 255)),
+			ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+			ColorSequenceKeypoint.new(0.84, Color3.fromRGB(255, 0, 255)),
+			ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0)),
+		}),
+		Parent = hueBar,
+	})
+
+	local hueKnob = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(h, 0, 0.5, 0),
+		Size = UDim2.fromOffset(6, 18),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+		ZIndex = 224,
+		Parent = hueBar,
+	})
+	Pill(hueKnob)
+	Stroke(hueKnob, Color3.fromRGB(20, 20, 26), 1, 0.4)
+	local hueKnobScale = Scale(hueKnob, 1)
+
+	--------------------------------------------------------------
+	-- Preview + hex field
+	--------------------------------------------------------------
+	local preview = New("Frame", {
+		Position = UDim2.new(0, 0, 0, 140),
+		Size = UDim2.fromOffset(30, 26),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		ZIndex = 223,
+		Parent = body,
+	})
+	Corner(Library.Radius.Small, preview)
+	Stroke(preview, Library.Scheme.OutlineLight, 1, 0.4)
+
+	local hexFrame = New("Frame", {
+		Position = UDim2.new(0, 36, 0, 140),
+		Size = UDim2.new(1, -36, 0, 26),
+		BackgroundColor3 = Library.Scheme.Element,
+		BorderSizePixel = 0,
+		ZIndex = 223,
+		Parent = body,
+	})
+	Corner(Library.Radius.Small, hexFrame)
+	Library:Register(hexFrame, "BackgroundColor3", "Element")
+
+	local hexBox = New("TextBox", {
+		Size = UDim2.new(1, -14, 1, 0),
+		Position = UDim2.new(0, 8, 0, 0),
+		BackgroundTransparency = 1,
+		Text = ToHex(color),
+		Font = Library.FontBold,
+		TextSize = 12,
+		TextColor3 = Library.Scheme.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 224,
+		Parent = hexFrame,
+	})
+	Library:Register(hexBox, "TextColor3", "Text")
+
+	--------------------------------------------------------------
+	-- Preset swatch row
+	--------------------------------------------------------------
+	local presetRow = New("Frame", {
+		Position = UDim2.new(0, 0, 0, 174),
+		Size = UDim2.new(1, 0, 0, 16),
+		BackgroundTransparency = 1,
+		ZIndex = 223,
+		Parent = body,
+	})
+	New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+		Parent = presetRow,
+	})
+
+	local applyPreset = nil
+
+	do
+		local i = 1
+		while i <= #SwatchPresets do
+			local presetColor = SwatchPresets[i]
+			local dot = New("TextButton", {
+				Size = UDim2.fromOffset(16, 16),
+				BackgroundColor3 = presetColor,
+				Text = "",
+				AutoButtonColor = false,
+				LayoutOrder = i,
+				ZIndex = 224,
+				Parent = presetRow,
+			})
+			Pill(dot)
+			Stroke(dot, Color3.fromRGB(255, 255, 255), 1, 0.75)
+			local dotScale = Scale(dot, 1)
+
+			Connect(dot.MouseEnter, function()
+				TweenRaw(dotScale, Anim.Spring, { Scale = 1.22 })
+			end)
+			Connect(dot.MouseLeave, function()
+				TweenRaw(dotScale, Anim.Fast, { Scale = 1 })
+			end)
+			Connect(dot.MouseButton1Click, function()
+				if applyPreset then
+					applyPreset(presetColor)
+				end
+			end)
+			i = i + 1
+		end
+	end
+
+	--------------------------------------------------------------
+	-- State sync
+	--------------------------------------------------------------
+	local function refresh(fire)
+		color = Color3.fromHSV(h, s, v)
+		swatch.BackgroundColor3 = color
+		preview.BackgroundColor3 = color
+		svBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+		svCursor.Position = UDim2.new(s, 0, 1 - v, 0)
+		hueKnob.Position = UDim2.new(h, 0, 0.5, 0)
+		hexBox.Text = ToHex(color)
+		-- Keep the cursor ring visible against both light and dark areas.
+		svRing.Color = Contrast(color)
+		cpObj.Value = color
+		Library.Flags[flag] = color
+		if fire ~= false then
+			task.spawn(callback, color)
+			changed:Fire(color)
+		end
+	end
+
+	applyPreset = function(c)
+		h, s, v = c:ToHSV()
+		refresh()
+		Punch(svCursorScale, 1.5, Anim.Spring)
+	end
+
+	refresh(false)
+
+	local dragSV = false
+	local dragHue = false
+	local stepConn = nil
+
+	local function readSV()
+		local size = svBox.AbsoluteSize
+		if size.X <= 0 or size.Y <= 0 then
+			return
+		end
+		s = math.clamp((Mouse.X - svBox.AbsolutePosition.X) / size.X, 0, 1)
+		v = 1 - math.clamp((Mouse.Y - svBox.AbsolutePosition.Y) / size.Y, 0, 1)
+		refresh()
+	end
+
+	local function readHue()
+		local width = hueBar.AbsoluteSize.X
+		if width <= 0 then
+			return
+		end
+		h = math.clamp((Mouse.X - hueBar.AbsolutePosition.X) / width, 0, 1)
+		refresh()
+	end
+
+	-- One follow loop shared by both handles, live only while one is held.
+	local function stopStep()
+		if stepConn then
+			stepConn:Disconnect()
+			stepConn = nil
+		end
+	end
+	local function step()
+		if Library.Unloaded or (not dragSV and not dragHue) then
+			stopStep()
+			return
+		end
+		if dragSV then
+			readSV()
+		elseif dragHue then
+			readHue()
+		end
+	end
+
+	Connect(svBox.InputBegan, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragSV = true
+			TweenRaw(svCursorScale, Anim.Spring, { Scale = 1.35 })
+			readSV()
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
+		end
+	end)
+	Connect(hueBar.InputBegan, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragHue = true
+			TweenRaw(hueKnobScale, Anim.Spring, { Scale = 1.25 })
+			readHue()
+			if not stepConn then
+				stepConn = RunService.RenderStepped:Connect(step)
+			end
+		end
+	end)
+	Connect(UserInputService.InputEnded, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if dragSV then
+				TweenRaw(svCursorScale, Anim.Spring, { Scale = 1 })
+			end
+			if dragHue then
+				TweenRaw(hueKnobScale, Anim.Spring, { Scale = 1 })
+			end
+			dragSV = false
+			dragHue = false
+			stopStep()
+		end
+	end)
+
+	Connect(hexBox.FocusLost, function()
+		local raw = hexBox.Text
+		if string.sub(raw, 1, 1) ~= "#" then
+			raw = "#" .. raw
+		end
+		local ok, parsed = pcall(function()
+			return Color3.fromHex(raw)
+		end)
+		if ok and parsed then
+			h, s, v = parsed:ToHSV()
+			refresh()
+		else
+			hexBox.Text = ToHex(color)
+		end
+	end)
+
+	--------------------------------------------------------------
+	-- Open / close
+	--------------------------------------------------------------
+	local POP_W = 212
+	local POP_H = 210
+	local isOpen = false
+
+	local function close()
+		if not isOpen then
+			return
+		end
+		isOpen = false
+		Tween(popWrap, Anim.Fast, { Size = UDim2.fromOffset(POP_W, 0) })
+		TweenRaw(popScale, Anim.Fast, { Scale = 0.95 })
+		TweenRaw(swatchStroke, Anim.Fast, { Color = Library.Scheme.OutlineLight, Transparency = 0.2 })
+		task.delay(0.2, function()
+			if not isOpen then
+				popWrap.Visible = false
+			end
+		end)
+	end
+	cpObj._close = close
+
+	local function open()
+		local i = 1
+		while i <= #Library.Popups do
+			Library.Popups[i]()
+			i = i + 1
+		end
+		isOpen = true
+		popWrap.Visible = true
+
+		-- Right-align the popup to the swatch, then clamp inside the viewport.
+		local viewport = ScreenGui.AbsoluteSize
+		local px = swatch.AbsolutePosition.X + swatch.AbsoluteSize.X - POP_W
+		local py = swatch.AbsolutePosition.Y + swatch.AbsoluteSize.Y + 7
+		if px < 8 then
+			px = 8
+		end
+		if px + POP_W > viewport.X - 8 then
+			px = viewport.X - POP_W - 8
+		end
+		if py + POP_H > viewport.Y - 8 then
+			py = swatch.AbsolutePosition.Y - POP_H - 7
+		end
+
+		popWrap.Position = UDim2.fromOffset(px, py)
+		popWrap.Size = UDim2.fromOffset(POP_W, 0)
+		popScale.Scale = 0.95
+		Tween(popWrap, Anim.Smooth, { Size = UDim2.fromOffset(POP_W, POP_H) })
+		TweenRaw(popScale, Anim.SoftSpring, { Scale = 1 })
+		TweenRaw(swatchStroke, Anim.Fast, { Color = Library.Scheme.Accent, Transparency = 0 })
+		Punch(svCursorScale, 1.4, Anim.Spring)
+	end
+	table.insert(Library.Popups, close)
+
+	Connect(swatch.MouseButton1Click, function()
+		Ripple(swatch, Contrast(color), 0.75)
+		if isOpen then
+			close()
+		else
+			open()
+		end
+	end)
+	Connect(swatch.MouseEnter, function()
+		TweenRaw(swatchScale, Anim.Spring, { Scale = 1.08 })
+		if not isOpen then
+			TweenRaw(swatchStroke, Anim.Fast, { Transparency = 0 })
+		end
+	end)
+	Connect(swatch.MouseLeave, function()
+		TweenRaw(swatchScale, Anim.Fast, { Scale = 1 })
+		if not isOpen then
+			TweenRaw(swatchStroke, Anim.Fast, { Transparency = 0.2 })
+		end
+	end)
+
+	Connect(UserInputService.InputBegan, function(input)
+		if not isOpen or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+			return
+		end
+		local m = UserInputService:GetMouseLocation()
+		local function inside(obj)
+			local p, size = obj.AbsolutePosition, obj.AbsoluteSize
+			return m.X >= p.X and m.X <= p.X + size.X and m.Y >= p.Y and m.Y <= p.Y + size.Y
+		end
+		if not inside(popWrap) and not inside(swatch) then
+			close()
+		end
+	end)
+
+	function cpObj:SetValueRGB(c, silent)
+		if typeof(c) ~= "Color3" then
+			return cpObj
+		end
+		h, s, v = c:ToHSV()
+		refresh(not silent)
+		return cpObj
+	end
+	cpObj.SetValue = cpObj.SetValueRGB
+	function cpObj:SetValueHex(hex)
+		local ok, parsed = pcall(function()
+			return Color3.fromHex(hex)
+		end)
+		if ok and parsed then
+			cpObj:SetValueRGB(parsed)
+		end
+		return cpObj
+	end
+	function cpObj:OnChanged(fn)
+		changed:Connect(fn)
+		task.spawn(fn, cpObj.Value)
+		return cpObj
+	end
+
+	Library.Options[flag] = cpObj
+	return cpObj
+end
+
+--============================================================================
+-- SECTION 18 — Visibility, minimise, unload
+--============================================================================
+
+function Library:CloseAllPopups()
+	local i = 1
+	while i <= #Library.Popups do
+		pcall(Library.Popups[i])
+		i = i + 1
+	end
+end
+
+-- Fade + scale the whole UI out rather than snapping Visible off.
+function Library:SetVisible(state)
+	Library.Toggled = state and true or false
+	if not Library.Toggled then
+		Library:CloseAllPopups()
+	end
+
+	local i = 1
+	while i <= #Library.Windows do
+		local w = Library.Windows[i]
+		if Library.Toggled then
+			w.Wrapper.Visible = true
+			w.Scale.Scale = 0.94
+			TweenRaw(w.Scale, Anim.SoftSpring, { Scale = 1 })
+			if w.IsGroup then
+				w.Main.GroupTransparency = 1
+				TweenRaw(w.Main, Anim.Smooth, { GroupTransparency = 0 })
+			end
+		else
+			TweenRaw(w.Scale, Anim.Fast, { Scale = 0.94 })
+			if w.IsGroup then
+				TweenRaw(w.Main, Anim.Fast, { GroupTransparency = 1 })
+				local wrapper = w.Wrapper
+				task.delay(0.2, function()
+					if not Library.Toggled then
+						wrapper.Visible = false
+					end
+				end)
+			else
+				w.Wrapper.Visible = false
+			end
+		end
+		i = i + 1
+	end
+end
+
+-- v1 behaviour: collapse every window to its topbar.
+function Library:Toggle(state)
+	local i = 1
+	while i <= #Library.Windows do
+		local w = Library.Windows[i]
+		local target = state
+		if target == nil then
+			target = not w.Minimized
+		end
+		w:SetMinimized(target)
+		i = i + 1
+	end
+end
+
+function Library:Unload()
+	if Library.Unloaded then
+		return
+	end
+	Library.Unloaded = true
+
+	if Library.OnUnload then
+		pcall(Library.OnUnload)
+	end
+
+	local i = 1
+	while i <= #Library.Connections do
+		pcall(function()
+			Library.Connections[i]:Disconnect()
+		end)
+		i = i + 1
+	end
+	Library.Connections = {}
+
+	for obj, tw in pairs(ActiveTweens) do
+		pcall(function()
+			tw:Cancel()
+		end)
+	end
+	ActiveTweens = {}
+
+	pcall(function()
+		ScreenGui:Destroy()
+	end)
+end
+
+-- Global toggle key.
+Connect(UserInputService.InputBegan, function(input, gpe)
+	if gpe or Library.Unloaded then
+		return
+	end
+	if Library.ToggleKey and input.KeyCode == Library.ToggleKey then
+		Library:SetVisible(not Library.Toggled)
+	end
+end)
+
+--============================================================================
+-- SECTION 19 — Theme control
+--============================================================================
+
+-- Setting the accent also derives AccentDim, so a single colour choice keeps
+-- the gradients and pressed states coherent.
+function Library:SetAccent(color, animate)
+	if typeof(color) ~= "Color3" then
+		return
+	end
+	Library.Scheme.Accent = color
+	Library.Scheme.AccentDim = Darken(Saturate(color, 0.05), 0.32)
+	Library:Refresh(animate ~= false)
+end
+
+function Library:SetThemeKey(key, color, animate)
+	if Library.Scheme[key] == nil then
+		return
+	end
+	Library.Scheme[key] = color
+	if key == "Accent" then
+		Library.Scheme.AccentDim = Darken(Saturate(color, 0.05), 0.32)
+	end
+	Library:Refresh(animate ~= false)
+end
+
+function Library:SetTheme(tbl, animate)
+	for k, val in pairs(tbl) do
+		if Library.Scheme[k] ~= nil then
+			Library.Scheme[k] = val
+		end
+	end
+	if tbl.Accent and not tbl.AccentDim then
+		Library.Scheme.AccentDim = Darken(Saturate(tbl.Accent, 0.05), 0.32)
+	end
+	Library:Refresh(animate ~= false)
+end
+
+function Library:GetTheme()
+	local out = {}
+	for k, val in pairs(Library.Scheme) do
+		out[k] = val
+	end
+	return out
+end
+
+--============================================================================
+-- SECTION 20 — Presets
+--============================================================================
+
+local Presets = {
+	Vertex = {
+		Accent = Color3.fromRGB(232, 43, 43),
+		Background = Color3.fromRGB(14, 14, 19),
+		Topbar = Color3.fromRGB(19, 19, 26),
+		Surface = Color3.fromRGB(23, 23, 31),
+		SurfaceAlt = Color3.fromRGB(28, 28, 37),
+		Element = Color3.fromRGB(33, 33, 44),
+		ElementHover = Color3.fromRGB(43, 43, 57),
+		ElementActive = Color3.fromRGB(52, 52, 68),
+		Outline = Color3.fromRGB(41, 41, 54),
+		OutlineLight = Color3.fromRGB(58, 58, 76),
+		Text = Color3.fromRGB(238, 238, 246),
+		SubText = Color3.fromRGB(150, 150, 168),
+		Placeholder = Color3.fromRGB(100, 100, 118),
+	},
+	Midnight = {
+		Accent = Color3.fromRGB(84, 152, 255),
+		Background = Color3.fromRGB(11, 14, 22),
+		Topbar = Color3.fromRGB(15, 19, 29),
+		Surface = Color3.fromRGB(18, 23, 34),
+		SurfaceAlt = Color3.fromRGB(23, 29, 42),
+		Element = Color3.fromRGB(27, 34, 49),
+		ElementHover = Color3.fromRGB(36, 45, 64),
+		ElementActive = Color3.fromRGB(45, 56, 79),
+		Outline = Color3.fromRGB(34, 43, 60),
+		OutlineLight = Color3.fromRGB(50, 62, 85),
+		Text = Color3.fromRGB(232, 238, 248),
+		SubText = Color3.fromRGB(138, 152, 176),
+		Placeholder = Color3.fromRGB(92, 105, 128),
+	},
+	Crimson = {
+		Accent = Color3.fromRGB(255, 84, 96),
+		Background = Color3.fromRGB(19, 13, 14),
+		Topbar = Color3.fromRGB(25, 17, 18),
+		Surface = Color3.fromRGB(29, 20, 21),
+		SurfaceAlt = Color3.fromRGB(36, 25, 26),
+		Element = Color3.fromRGB(43, 29, 31),
+		ElementHover = Color3.fromRGB(56, 38, 40),
+		ElementActive = Color3.fromRGB(68, 46, 49),
+		Outline = Color3.fromRGB(53, 36, 38),
+		OutlineLight = Color3.fromRGB(74, 50, 53),
+		Text = Color3.fromRGB(246, 236, 236),
+		SubText = Color3.fromRGB(172, 146, 148),
+		Placeholder = Color3.fromRGB(120, 98, 100),
+	},
+	Emerald = {
+		Accent = Color3.fromRGB(62, 220, 148),
+		Background = Color3.fromRGB(11, 18, 15),
+		Topbar = Color3.fromRGB(15, 24, 20),
+		Surface = Color3.fromRGB(18, 28, 23),
+		SurfaceAlt = Color3.fromRGB(23, 35, 29),
+		Element = Color3.fromRGB(27, 41, 34),
+		ElementHover = Color3.fromRGB(36, 54, 45),
+		ElementActive = Color3.fromRGB(45, 66, 55),
+		Outline = Color3.fromRGB(34, 51, 42),
+		OutlineLight = Color3.fromRGB(49, 71, 59),
+		Text = Color3.fromRGB(232, 246, 238),
+		SubText = Color3.fromRGB(138, 172, 156),
+		Placeholder = Color3.fromRGB(94, 122, 108),
+	},
+}
+
+Presets.Mono = {
+	Accent = Color3.fromRGB(222, 222, 230),
+	Background = Color3.fromRGB(13, 13, 15),
+	Topbar = Color3.fromRGB(18, 18, 21),
+	Surface = Color3.fromRGB(22, 22, 25),
+	SurfaceAlt = Color3.fromRGB(28, 28, 32),
+	Element = Color3.fromRGB(33, 33, 38),
+	ElementHover = Color3.fromRGB(44, 44, 50),
+	ElementActive = Color3.fromRGB(55, 55, 62),
+	Outline = Color3.fromRGB(41, 41, 47),
+	OutlineLight = Color3.fromRGB(58, 58, 66),
+	Text = Color3.fromRGB(240, 240, 244),
+	SubText = Color3.fromRGB(150, 150, 158),
+	Placeholder = Color3.fromRGB(102, 102, 110),
+}
+Presets.Rose = {
+	Accent = Color3.fromRGB(244, 114, 182),
+	Background = Color3.fromRGB(19, 12, 17),
+	Topbar = Color3.fromRGB(25, 16, 23),
+	Surface = Color3.fromRGB(30, 19, 27),
+	SurfaceAlt = Color3.fromRGB(37, 24, 34),
+	Element = Color3.fromRGB(44, 28, 40),
+	ElementHover = Color3.fromRGB(58, 37, 52),
+	ElementActive = Color3.fromRGB(70, 45, 63),
+	Outline = Color3.fromRGB(54, 35, 49),
+	OutlineLight = Color3.fromRGB(76, 49, 68),
+	Text = Color3.fromRGB(248, 236, 244),
+	SubText = Color3.fromRGB(176, 148, 166),
+	Placeholder = Color3.fromRGB(124, 100, 116),
+}
+Presets.Amber = {
+	Accent = Color3.fromRGB(255, 176, 60),
+	Background = Color3.fromRGB(19, 16, 11),
+	Topbar = Color3.fromRGB(25, 21, 15),
+	Surface = Color3.fromRGB(30, 25, 18),
+	SurfaceAlt = Color3.fromRGB(37, 31, 23),
+	Element = Color3.fromRGB(44, 37, 27),
+	ElementHover = Color3.fromRGB(58, 49, 36),
+	ElementActive = Color3.fromRGB(70, 59, 44),
+	Outline = Color3.fromRGB(54, 45, 34),
+	OutlineLight = Color3.fromRGB(76, 64, 48),
+	Text = Color3.fromRGB(248, 242, 232),
+	SubText = Color3.fromRGB(174, 162, 140),
+	Placeholder = Color3.fromRGB(122, 112, 94),
+}
+Presets.Cyber = {
+	Accent = Color3.fromRGB(0, 232, 214),
+	Background = Color3.fromRGB(8, 15, 18),
+	Topbar = Color3.fromRGB(11, 20, 24),
+	Surface = Color3.fromRGB(14, 25, 29),
+	SurfaceAlt = Color3.fromRGB(18, 31, 37),
+	Element = Color3.fromRGB(21, 37, 44),
+	ElementHover = Color3.fromRGB(29, 50, 59),
+	ElementActive = Color3.fromRGB(37, 62, 73),
+	Outline = Color3.fromRGB(27, 46, 54),
+	OutlineLight = Color3.fromRGB(40, 66, 78),
+	Text = Color3.fromRGB(228, 246, 248),
+	SubText = Color3.fromRGB(130, 166, 174),
+	Placeholder = Color3.fromRGB(88, 118, 126),
+}
+-- A light theme, for anyone who does not want a dark panel over a bright game.
+Presets.Daylight = {
+	Accent = Color3.fromRGB(96, 82, 226),
+	Background = Color3.fromRGB(242, 242, 247),
+	Topbar = Color3.fromRGB(252, 252, 255),
+	Surface = Color3.fromRGB(255, 255, 255),
+	SurfaceAlt = Color3.fromRGB(250, 250, 253),
+	Element = Color3.fromRGB(238, 238, 245),
+	ElementHover = Color3.fromRGB(228, 228, 238),
+	ElementActive = Color3.fromRGB(216, 216, 230),
+	Outline = Color3.fromRGB(220, 220, 230),
+	OutlineLight = Color3.fromRGB(202, 202, 216),
+	Text = Color3.fromRGB(28, 28, 38),
+	SubText = Color3.fromRGB(96, 96, 116),
+	Placeholder = Color3.fromRGB(146, 146, 166),
+	Shadow = Color3.fromRGB(120, 120, 150),
+}
+
+Library.Presets = Presets
+
+function Library:GetPresets()
+	local names = {}
+	for name in pairs(Presets) do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	return names
+end
+
+function Library:ApplyPreset(name, animate)
+	local preset = Presets[name]
+	if not preset then
+		return false
+	end
+	-- Shadow is not in every preset, so reset it to the dark default first.
+	if preset.Shadow == nil then
+		Library.Scheme.Shadow = Color3.fromRGB(0, 0, 0)
+	end
+	Library:SetTheme(preset, animate)
+	return true
+end
+
+--============================================================================
+-- SECTION 21 — Config save / load
+--============================================================================
+
+Library.Folder = "VertexUI"
+Library.ConfigFolder = "VertexUI/configs"
+
+-- Every file call is wrapped: executors vary wildly in what they expose, and a
+-- missing writefile should degrade to "config unavailable", never an error.
+local function HasFileSystem()
+	return (writefile ~= nil) and (readfile ~= nil) and (isfolder ~= nil) and (makefolder ~= nil)
+end
+
+local function EnsureFolders()
+	pcall(function()
+		if not isfolder(Library.Folder) then
+			makefolder(Library.Folder)
+		end
+		if not isfolder(Library.ConfigFolder) then
+			makefolder(Library.ConfigFolder)
+		end
+	end)
+end
+
+-- JSON cannot hold Color3 or EnumItem, so tag them and rebuild on load.
+local function Serialize(value)
+	local t = typeof(value)
+	if t == "Color3" then
+		return { __t = "c", r = value.R, g = value.G, b = value.B }
+	elseif t == "EnumItem" then
+		return { __t = "k", e = tostring(value.EnumType), n = value.Name }
+	elseif t == "table" then
+		local out = {}
+		for k, val in pairs(value) do
+			out[tostring(k)] = Serialize(val)
+		end
+		return { __t = "t", v = out }
+	elseif t == "Vector2" then
+		return { __t = "v2", x = value.X, y = value.Y }
+	end
+	return value
+end
+
+local function Deserialize(value)
+	if typeof(value) ~= "table" then
+		return value
+	end
+	if value.__t == "c" then
+		return Color3.new(value.r, value.g, value.b)
+	elseif value.__t == "k" then
+		local result = nil
+		pcall(function()
+			if value.e == "Enum.UserInputType" then
+				result = Enum.UserInputType[value.n]
+			else
+				result = Enum.KeyCode[value.n]
+			end
+		end)
+		return result
+	elseif value.__t == "v2" then
+		return Vector2.new(value.x, value.y)
+	elseif value.__t == "t" then
+		local out = {}
+		for k, val in pairs(value.v) do
+			out[k] = Deserialize(val)
+		end
+		return out
+	end
+	return value
+end
+
+function Library:SaveConfig(name)
+	if not name or name == "" then
+		Library:Notify({ Title = "Config", Text = "Enter a name first.", Type = "warning" })
+		return false
+	end
+	if not HasFileSystem() then
+		Library:Notify({ Title = "Config", Text = "Your executor has no file API.", Type = "error" })
+		return false
+	end
+	EnsureFolders()
+
+	local data = { __version = Library.Version, flags = {} }
+	for flag, val in pairs(Library.Flags) do
+		data.flags[flag] = Serialize(val)
+	end
+
+	local ok, encoded = pcall(function()
+		return HttpService:JSONEncode(data)
+	end)
+	if not ok then
+		Library:Notify({ Title = "Config", Text = "Could not encode config.", Type = "error" })
+		return false
+	end
+
+	local wrote = pcall(function()
+		writefile(Library.ConfigFolder .. "/" .. name .. ".json", encoded)
+	end)
+	if not wrote then
+		Library:Notify({ Title = "Config", Text = "Write failed.", Type = "error" })
+		return false
+	end
+
+	Library:Notify({ Title = "Config", Text = "Saved '" .. name .. "'.", Type = "success", Icon = "save" })
+	return true
+end
+
+-- Route a loaded value through the element that owns the flag, so the UI moves
+-- with it instead of the flag silently changing behind the widget.
+local function ApplyFlag(flag, val)
+	local toggle = Library.Toggles[flag]
+	if toggle then
+		toggle:SetValue(val)
+		return
+	end
+	local option = Library.Options[flag]
+	if option then
+		if option.Type == "ColorPicker" then
+			option:SetValueRGB(val)
+		else
+			option:SetValue(val)
+		end
+		return
+	end
+	Library.Flags[flag] = val
+end
+
+function Library:LoadConfig(name)
+	if not name or name == "" then
+		return false
+	end
+	if not (readfile and isfile) then
+		Library:Notify({ Title = "Config", Text = "Your executor has no file API.", Type = "error" })
+		return false
+	end
+
+	local path = Library.ConfigFolder .. "/" .. name .. ".json"
+	local exists = false
+	pcall(function()
+		exists = isfile(path)
+	end)
+	if not exists then
+		Library:Notify({ Title = "Config", Text = "'" .. name .. "' not found.", Type = "warning" })
+		return false
+	end
+
+	local ok, raw = pcall(function()
+		return readfile(path)
+	end)
+	if not ok then
+		return false
+	end
+
+	local decoded
+	ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+	if not ok or typeof(decoded) ~= "table" then
+		Library:Notify({ Title = "Config", Text = "Config file is corrupt.", Type = "error" })
+		return false
+	end
+
+	-- v1 wrote flags at the top level; v2 nests them under `flags`.
+	local flags = decoded.flags or decoded
+	local applied = 0
+	for flag, val in pairs(flags) do
+		if flag ~= "__version" then
+			local success = pcall(function()
+				ApplyFlag(flag, Deserialize(val))
+			end)
+			if success then
+				applied = applied + 1
+			end
+		end
+	end
+
+	Library:Notify({
+		Title = "Config",
+		Text = "Loaded '" .. name .. "' (" .. tostring(applied) .. " values).",
+		Type = "success",
+		Icon = "folder-open",
+	})
+	return true
+end
+
+function Library:GetConfigs()
+	local out = {}
+	pcall(function()
+		if not (listfiles and isfolder) then
+			return
+		end
+		if not isfolder(Library.ConfigFolder) then
+			return
+		end
+		local files = listfiles(Library.ConfigFolder)
+		local i = 1
+		while i <= #files do
+			local base = string.match(files[i], "([^/\\]+)%.json$")
+			if base then
+				table.insert(out, base)
+			end
+			i = i + 1
+		end
+	end)
+	table.sort(out)
+	return out
+end
+
+function Library:DeleteConfig(name)
+	if not name or name == "" then
+		return false
+	end
+	local removed = false
+	pcall(function()
+		local path = Library.ConfigFolder .. "/" .. name .. ".json"
+		if delfile and isfile and isfile(path) then
+			delfile(path)
+			removed = true
+		end
+	end)
+	if removed then
+		Library:Notify({ Title = "Config", Text = "Deleted '" .. name .. "'.", Type = "info", Icon = "trash-2" })
+	end
+	return removed
+end
+
+--============================================================================
+-- SECTION 22 — Built-in settings tab
+--============================================================================
+
+--[[
+	One call adds a full settings page: preset picker, live theme editor,
+	toggle-key binding, watermark controls, and a config manager.
+
+		Library:AddSettingsTab(Window)
+]]
+function Library:AddSettingsTab(window, tabName)
+	local tab = window:AddTab(tabName or "Settings", "settings")
+
+	------------------------------------------------------------------
+	-- Appearance
+	------------------------------------------------------------------
+	local look = tab:AddLeftGroupbox("Appearance", "palette")
+
+	look:AddDropdown("_ui_preset", {
+		Text = "Theme preset",
+		Values = Library:GetPresets(),
+		Default = "Vertex",
+		Search = true,
+		Callback = function(name)
+			Library:ApplyPreset(name)
+			-- Push the new scheme back into the pickers below.
+			local pairsToSync = {
+				{ "_ui_accent", "Accent" },
+				{ "_ui_bg", "Background" },
+				{ "_ui_surface", "Surface" },
+				{ "_ui_element", "Element" },
+				{ "_ui_outline", "Outline" },
+				{ "_ui_text", "Text" },
+			}
+			local i = 1
+			while i <= #pairsToSync do
+				local entry = pairsToSync[i]
+				local picker = Library.Options[entry[1]]
+				if picker then
+					picker:SetValueRGB(Library.Scheme[entry[2]], true)
+				end
+				i = i + 1
+			end
+		end,
+	})
+
+	look:AddDivider("colours")
+
+	look:AddColorPicker("_ui_accent", {
+		Text = "Accent",
+		Default = Library.Scheme.Accent,
+		Callback = function(c)
+			Library:SetAccent(c)
+		end,
+	})
+	look:AddColorPicker("_ui_bg", {
+		Text = "Background",
+		Default = Library.Scheme.Background,
+		Callback = function(c)
+			Library:SetThemeKey("Background", c)
+		end,
+	})
+	look:AddColorPicker("_ui_surface", {
+		Text = "Surface",
+		Default = Library.Scheme.Surface,
+		Callback = function(c)
+			Library:SetThemeKey("Surface", c)
+			Library:SetThemeKey("SurfaceAlt", Lighten(c, 0.06))
+		end,
+	})
+	look:AddColorPicker("_ui_element", {
+		Text = "Element",
+		Default = Library.Scheme.Element,
+		Callback = function(c)
+			Library:SetThemeKey("Element", c)
+			Library:SetThemeKey("ElementHover", Lighten(c, 0.09))
+			Library:SetThemeKey("ElementActive", Lighten(c, 0.16))
+		end,
+	})
+	look:AddColorPicker("_ui_outline", {
+		Text = "Outline",
+		Default = Library.Scheme.Outline,
+		Callback = function(c)
+			Library:SetThemeKey("Outline", c)
+			Library:SetThemeKey("OutlineLight", Lighten(c, 0.14))
+		end,
+	})
+	look:AddColorPicker("_ui_text", {
+		Text = "Text",
+		Default = Library.Scheme.Text,
+		Callback = function(c)
+			Library:SetThemeKey("Text", c)
+			Library:SetThemeKey("SubText", Mix(c, Library.Scheme.Background, 0.42))
+		end,
+	})
+
+	------------------------------------------------------------------
+	-- Interface
+	------------------------------------------------------------------
+	local ui = tab:AddLeftGroupbox("Interface", "sliders-horizontal")
+
+	ui:AddKeybind("_ui_togglekey", {
+		Text = "Toggle UI",
+		Default = Library.ToggleKey,
+		Tooltip = "Hides and shows the whole interface",
+		Callback = function(k)
+			if k then
+				Library.ToggleKey = k
+			end
+		end,
+	})
+
+	ui:AddToggle("_ui_watermark", {
+		Text = "Show watermark",
+		Default = false,
+		Callback = function(state)
+			Library:SetWatermarkVisibility(state)
+		end,
+	})
+
+	ui:AddToggle("_ui_wmstats", {
+		Text = "Watermark stats",
+		Default = true,
+		Tooltip = "Substitutes {fps}, {ping}, {time} in the watermark text",
+		Callback = function(state)
+			Library.WatermarkStats = state
+		end,
+	})
+
+	ui:AddButton({
+		Text = "Unload interface",
+		Icon = "power",
+		Danger = true,
+		DoubleClick = true,
+		Tooltip = "Destroys the UI and disconnects everything",
+		Func = function()
+			Library:Unload()
+		end,
+	})
+
+	------------------------------------------------------------------
+	-- Configuration
+	------------------------------------------------------------------
+	local cfg = tab:AddRightGroupbox("Configuration", "save")
+
+	cfg:AddInput("_ui_cfgname", {
+		Text = "Config name",
+		Placeholder = "my preset",
+		Icon = "pencil",
+		MaxLength = 40,
+	})
+
+	local list = cfg:AddDropdown("_ui_cfglist", {
+		Text = "Saved configs",
+		Values = Library:GetConfigs(),
+		Default = nil,
+		Search = true,
+		Placeholder = "none saved",
+	})
+
+	local function RefreshList()
+		list:SetValues(Library:GetConfigs())
+	end
+
+	cfg:AddButton({
+		Text = "Save",
+		Icon = "download",
+		Func = function()
+			local name = Library.Flags["_ui_cfgname"]
+			if Library:SaveConfig(name) then
+				RefreshList()
+			end
+		end,
+	})
+	cfg:AddButton({
+		Text = "Load selected",
+		Icon = "upload",
+		Func = function()
+			Library:LoadConfig(Library.Flags["_ui_cfglist"])
+		end,
+	})
+	cfg:AddButton({
+		Text = "Delete selected",
+		Icon = "trash-2",
+		Danger = true,
+		DoubleClick = true,
+		Func = function()
+			if Library:DeleteConfig(Library.Flags["_ui_cfglist"]) then
+				list:SetValue(nil, true)
+				RefreshList()
+			end
+		end,
+	})
+	cfg:AddButton({
+		Text = "Refresh list",
+		Icon = "refresh-cw",
+		Func = RefreshList,
+	})
+
+	------------------------------------------------------------------
+	-- About
+	------------------------------------------------------------------
+	local about = tab:AddRightGroupbox("About", "info")
+	about:AddLabel({
+		Text = "Vertex UI v" .. Library.Version .. " — native Roblox instances, no dependencies.",
+		Wrap = true,
+		Icon = "sparkles",
+	})
+	about:AddLabel({ Text = "Configs live in " .. Library.ConfigFolder .. "/", Wrap = true })
+
+	return tab
+end
+
+--============================================================================
+-- SECTION 23 — Convenience helpers
+--============================================================================
+
+-- Look up an element's live value regardless of which table owns it.
+function Library:GetFlag(flag, fallback)
+	local val = Library.Flags[flag]
+	if val == nil then
+		return fallback
+	end
+	return val
+end
+
+function Library:SetFlag(flag, value)
+	ApplyFlag(flag, value)
+end
+
+-- Reset every registered element back to whatever it currently reads as its
+-- default — useful for a "reset UI" button in a hub.
+function Library:ResetFlags(defaults)
+	if typeof(defaults) ~= "table" then
+		return
+	end
+	for flag, val in pairs(defaults) do
+		pcall(function()
+			ApplyFlag(flag, val)
+		end)
+	end
+end
+
+Library.SetToggleKey = function(_, key)
+	if typeof(key) == "EnumItem" then
+		Library.ToggleKey = key
+	end
+end
+
+return Library
