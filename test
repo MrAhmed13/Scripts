@@ -3446,7 +3446,7 @@ New("UIGradient", {
 		local label = New("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 14),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(text),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 12,
@@ -3605,7 +3605,7 @@ New("UIGradient", {
 		local label = New("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 14),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(text),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 12,
@@ -5569,7 +5569,7 @@ function Library:AddSettingsTab(window, tabName)
 		Wrap = true,
 		Icon = "sparkles",
 	})
-	about:AddLabel({ Text = "Configs live in " .. Library.ConfigFolder .. "/", Wrap = true })
+	about:AddLabel({ Text = "Configs live in " .. Library.ConfigFolder .. "/", Wrap = true, Icon = "settings" })
 
 	return tab
 end
