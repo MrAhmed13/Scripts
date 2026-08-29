@@ -4055,7 +4055,7 @@ New("UIGradient", {
 		local label = New("TextLabel", {
 			Size = UDim2.new(1, -40, 1, 0),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(opts.Text or flag),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 13,
@@ -4077,7 +4077,7 @@ New("UIGradient", {
 		local label = New("TextLabel", {
 			Size = UDim2.new(1, -70, 1, 0),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(opts.Text or flag),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 13,
