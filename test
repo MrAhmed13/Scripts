@@ -93,7 +93,7 @@ Library.Scheme = {
 
 Library.Font = Enum.Font.GothamMedium
 Library.FontBold = Enum.Font.GothamBold
-Library.FontRegular = Enum.Font.Gotham
+Library.FontRegular = Enum.Font.GothamMedium
 
 Library.ToggleKey = Enum.KeyCode.RightControl
 
@@ -1898,7 +1898,7 @@ function Library:CreateWindow(opts)
 	local subLabel = New("TextLabel", {
 		Size = UDim2.new(1, 0, 0, 13),
 		BackgroundTransparency = 1,
-		Font = Library.Font,
+		Font = Library.FontBold,
 		Text = subtitle,
 		TextColor3 = Library.Scheme.SubText,
 		TextSize = 11,
@@ -2565,13 +2565,13 @@ New("UIGradient", {
 	if iconName then
 		local hIcon = Library:CreateIcon(header, iconName, 15, "Accent")
 		hIcon.AnchorPoint = Vector2.new(0, 0.5)
-		hIcon.Position = UDim2.new(0, 13, 0.5, 2)
+		hIcon.Position = UDim2.new(0, 13, 0.5, 0)
 		headerX = 35
 	else
 		-- No icon: a small accent dot keeps the header from looking bare.
 		local dot = New("Frame", {
 			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 13, 0.5, 2),
+			Position = UDim2.new(0, 13, 0.5, 0),
 			Size = UDim2.fromOffset(6, 6),
 			BackgroundColor3 = Library.Scheme.Accent,
 			BorderSizePixel = 0,
@@ -2584,7 +2584,7 @@ New("UIGradient", {
 
 	local headerLabel = New("TextLabel", {
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, headerX, 0.5, 2),
+		Position = UDim2.new(0, headerX, 0.5, 0),
 		Size = UDim2.new(1, -headerX - 36, 0, 16),
 		BackgroundTransparency = 1,
 		Font = Library.FontBold,
@@ -2640,7 +2640,7 @@ New("UIGradient", {
 
 	local chevron = Library:CreateIcon(header, "chevron-down", 15, "Placeholder")
 	chevron.AnchorPoint = Vector2.new(1, 0.5)
-	chevron.Position = UDim2.new(1, -13, 0.5, 2)
+	chevron.Position = UDim2.new(1, -13, 0.5, 0)
 
 	local headerBtn = New("TextButton", {
 		Size = UDim2.new(1, 0, 1, 0),
@@ -2735,7 +2735,7 @@ New("UIGradient", {
 			Position = UDim2.new(0, textX, 0, 0),
 			Size = UDim2.new(1, -textX, 0, 16),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(text or ""),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 12,
@@ -2998,9 +2998,9 @@ New("UIGradient", {
 			labelKey = "Danger"
 		end
 		local label = New("TextLabel", {
-			Size = UDim2.new(1, -60, 1, 0),
-			BackgroundTransparency = 1,
-			Font = Library.Font,
+		    Size = UDim2.new(1, -60, 1, 0),
+		    BackgroundTransparency = 1,
+		    Font = Library.FontBold,
 			Text = tostring(text),
 			TextColor3 = Library.Scheme[labelKey],
 			TextSize = 13,
@@ -3219,7 +3219,7 @@ New("UIGradient", {
 		local label = New("TextLabel", {
 			Size = UDim2.new(1, -90, 0, 15),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(text),
 			TextColor3 = Library.Scheme.SubText,
 			TextSize = 13,
@@ -3632,7 +3632,7 @@ New("UIGradient", {
 			Position = UDim2.new(0, 10, 0, 0),
 			Size = UDim2.new(1, -34, 1, 0),
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = "...",
 			TextColor3 = Library.Scheme.Text,
 			TextSize = 12,
