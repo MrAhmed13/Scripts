@@ -6,7 +6,7 @@
 	 ╚████╔╝ ███████╗██║  ██║   ██║   ███████╗██╔╝ ██╗
 	  ╚═══╝  ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 
-	Vertex UI Library — v2.0.0
+	Vertex UI Library — v1.0.0
 	--------------------------
 	A polished, heavily animated UI library for Roblox executors.
 	See README.md for the full Guide (WIP)
@@ -14,7 +14,7 @@
 
 local Library = {}
 
-Library.Version = "2.0.0"
+Library.Version = "1.0.0"
 Library.Unloaded = false
 Library.Toggled = true
 
@@ -2066,7 +2066,7 @@ function Library:CreateWindow(opts)
 		Position = UDim2.new(0, 12, 1, -9),
 		Size = UDim2.new(1, -24, 0, 12),
 		BackgroundTransparency = 1,
-		Font = Library.Font,
+		Font = Library.FontBold,
 		Text = "Vertex v" .. Library.Version,
 		TextColor3 = Library.Scheme.Placeholder,
 		TextSize = 10,
