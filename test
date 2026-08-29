@@ -2900,7 +2900,7 @@ New("UIGradient", {
 			Size = UDim2.new(0, 0, 1, 0),
 			AutomaticSize = Enum.AutomaticSize.X,
 			BackgroundTransparency = 1,
-			Font = Library.Font,
+			Font = Library.FontBold,
 			Text = tostring(text),
 			TextColor3 = Library.Scheme.Text,
 			TextSize = 13,
