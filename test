@@ -2710,7 +2710,16 @@ New("UIGradient", {
 		return r
 	end
 	Groupbox.Row = Row
-
+-- Manual text measuring. AutomaticSize.Y is unreliable with multiline
+-- [[ ]] strings on some executors, so heights get computed by hand.
+local TextService = game:GetService("TextService")
+local function TextHeight(text, size, font, width, lineHeight)
+	if width < 1 then
+		width = 1
+	end
+	local raw = TextService:GetTextSize(text, size, font, Vector2.new(width, 100000)).Y
+	return math.ceil(raw * (lineHeight or 1.15))
+end
 --------------------------------------------------------------------
 -- Label (array form first; content string delegates to Paragraph)
 --------------------------------------------------------------------
@@ -2728,7 +2737,6 @@ function Groupbox:AddLabel(a, b, c)
 	local text, wrap, iconName
 	if typeof(a) == "table" then
 		if a[1] ~= nil then
-			-- {"text", true, "icon"} or {"text", "icon", true}
 			text = a[1]
 			if typeof(a[2]) == "boolean" then
 				wrap = a[2]
@@ -2759,8 +2767,7 @@ function Groupbox:AddLabel(a, b, c)
 
 	local lbl = New("TextLabel", {
 		Position = UDim2.new(0, 0, 0, 0),
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 16),
 		BackgroundTransparency = 1,
 		Font = Library.FontBold,
 		Text = tostring(text or ""),
@@ -2769,13 +2776,20 @@ function Groupbox:AddLabel(a, b, c)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		TextWrapped = wrap and true or false,
-		LineHeight = 1.2,
+		LineHeight = 1.15,
 		Parent = row,
 	})
 	Library:Register(lbl, "TextColor3", "SubText")
 
-	local function syncHeight()
-		row.Size = UDim2.new(1, 0, 0, math.max(16, lbl.AbsoluteSize.Y))
+	local function measure()
+		if not wrap then
+			lbl.Size = UDim2.new(1, -textX, 0, 16)
+			row.Size = UDim2.new(1, 0, 0, 16)
+			return
+		end
+		local h = TextHeight(lbl.Text, 12, Library.FontBold, row.AbsoluteSize.X - textX, 1.15)
+		lbl.Size = UDim2.new(1, -textX, 0, h)
+		row.Size = UDim2.new(1, 0, 0, math.max(16, h))
 	end
 
 	local function applyIcon(name)
@@ -2789,18 +2803,19 @@ function Groupbox:AddLabel(a, b, c)
 			iconInst.Position = UDim2.new(0, 0, 0, 1)
 		end
 		textX = iconInst and 20 or 0
-		lbl.Position = UDim2.new(0, textX, 0, 0)
-		lbl.Size = UDim2.new(1, -textX, 0, 0)
-		syncHeight()
+		-- +2 on Y so the text baseline sits flush with the icon
+		lbl.Position = UDim2.new(0, textX, 0, iconInst and 2 or 0)
+		measure()
 	end
 
-	lbl:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncHeight)
+	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure)
 	applyIcon(iconName)
-	task.spawn(syncHeight)
+	task.spawn(measure)
 
 	local obj = { Type = "Label", Instance = lbl }
 	function obj:SetText(t)
 		lbl.Text = tostring(t)
+		measure()
 	end
 	function obj:SetColor(key)
 		lbl.TextColor3 = Library.Scheme[key] or Library.Scheme.SubText
@@ -2810,7 +2825,6 @@ function Groupbox:AddLabel(a, b, c)
 	end
 	return obj
 end
-
 --------------------------------------------------------------------
 -- Paragraph ({"title", "content", "icon"} straight positional)
 --------------------------------------------------------------------
@@ -2839,7 +2853,6 @@ function Groupbox:AddParagraph(a, b, c)
 	local titleLabel = New("TextLabel", {
 		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
 		Font = Library.FontBold,
 		Text = tostring(title or ""),
@@ -2848,6 +2861,7 @@ function Groupbox:AddParagraph(a, b, c)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		TextWrapped = true,
+		LineHeight = 1.15,
 		Parent = row,
 	})
 	Library:Register(titleLabel, "TextColor3", "Text")
@@ -2855,7 +2869,6 @@ function Groupbox:AddParagraph(a, b, c)
 	local contentLabel = New("TextLabel", {
 		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
 		Font = Library.Font,
 		Text = tostring(content or ""),
@@ -2864,15 +2877,18 @@ function Groupbox:AddParagraph(a, b, c)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		TextWrapped = true,
-		LineHeight = 1.25,
+		LineHeight = 1.15,
 		Parent = row,
 	})
 	Library:Register(contentLabel, "TextColor3", "SubText")
 
-	local function syncLayout()
-		local titleH = titleLabel.AbsoluteSize.Y
-		local bodyH = contentLabel.AbsoluteSize.Y
+	local function measure()
+		local w = row.AbsoluteSize.X - textX
+		local titleH = titleLabel.Text ~= "" and TextHeight(titleLabel.Text, 13, Library.FontBold, w, 1.15) or 0
+		local bodyH = contentLabel.Text ~= "" and TextHeight(contentLabel.Text, 12, Library.Font, w, 1.15) or 0
 		local gap = (titleH > 0 and bodyH > 0) and 4 or 0
+		titleLabel.Size = UDim2.new(1, -textX, 0, titleH)
+		contentLabel.Size = UDim2.new(1, -textX, 0, bodyH)
 		contentLabel.Position = UDim2.new(0, textX, 0, titleH + gap)
 		row.Size = UDim2.new(1, 0, 0, math.max(16, titleH + gap + bodyH))
 	end
@@ -2888,27 +2904,28 @@ function Groupbox:AddParagraph(a, b, c)
 			iconInst.Position = UDim2.new(0, 0, 0, 1)
 		end
 		textX = iconInst and 20 or 0
-		titleLabel.Position = UDim2.new(0, textX, 0, 0)
-		titleLabel.Size = UDim2.new(1, -textX, 0, 0)
-		contentLabel.Size = UDim2.new(1, -textX, 0, 0)
-		syncLayout()
+		-- +2 on Y so the bold title sits flush with the icon
+		titleLabel.Position = UDim2.new(0, textX, 0, iconInst and 2 or 0)
+		measure()
 	end
 
-	titleLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncLayout)
-	contentLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncLayout)
+	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure)
 	applyIcon(iconName)
-	task.spawn(syncLayout)
+	task.spawn(measure)
 
 	local obj = { Type = "Paragraph", Instance = row }
 	function obj:SetTitle(t)
 		titleLabel.Text = tostring(t)
+		measure()
 	end
 	function obj:SetContent(ct)
 		contentLabel.Text = tostring(ct)
+		measure()
 	end
 	function obj:SetText(t, ct)
 		if t then titleLabel.Text = tostring(t) end
 		if ct then contentLabel.Text = tostring(ct) end
+		measure()
 	end
 	function obj:SetIcon(name)
 		applyIcon(name)
