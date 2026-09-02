@@ -4895,7 +4895,28 @@ function Library:CloseAllPopups()
 		i = i + 1
 	end
 end
-
+-- UIStroke ignores CanvasGroup GroupTransparency on some clients,
+-- so strokes get faded by hand alongside the window.
+local function FadeStrokes(root, restore, info)
+	local desc = root:GetDescendants()
+	local i = 1
+	while i <= #desc do
+		local d = desc[i]
+		if d:IsA("UIStroke") then
+			if restore then
+				local saved = d:GetAttribute("VertexHideTransparency")
+				if saved then
+					d.Transparency = 1
+					TweenRaw(d, info or Anim.Smooth, { Transparency = saved })
+				end
+			else
+				d:SetAttribute("VertexHideTransparency", d.Transparency)
+				TweenRaw(d, info or Anim.Fast, { Transparency = 1 })
+			end
+		end
+		i = i + 1
+	end
+end
 -- Fade + scale the whole UI out rather than snapping Visible off.
 function Library:SetVisible(state)
 	Library.Toggled = state and true or false
@@ -4918,6 +4939,7 @@ function Library:SetVisible(state)
 					j = j + 1
 				end
 			end
+			FadeStrokes(w.Wrapper, true)
 			w.Scale.Scale = 0.94
 			TweenRaw(w.Scale, Anim.SoftSpring, { Scale = 1 })
 			if w.IsGroup then
@@ -4926,6 +4948,7 @@ function Library:SetVisible(state)
 			end
 		else
 			TweenRaw(w.Scale, Anim.Fast, { Scale = 0.94 })
+			FadeStrokes(w.Wrapper, false)
 			if w.Glow then
 				TweenRaw(w.Glow, Anim.Fast, { BackgroundTransparency = 1 })
 			end
