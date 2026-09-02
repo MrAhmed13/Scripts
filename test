@@ -2866,6 +2866,7 @@ function Groupbox:AddParagraph(a, b, c)
 	})
 	Library:Register(titleLabel, "TextColor3", "Text")
 
+	-- body always runs full width; only the title rides next to the icon
 	local contentLabel = New("TextLabel", {
 		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
@@ -2883,13 +2884,14 @@ function Groupbox:AddParagraph(a, b, c)
 	Library:Register(contentLabel, "TextColor3", "SubText")
 
 	local function measure()
-		local w = row.AbsoluteSize.X - textX
-		local titleH = titleLabel.Text ~= "" and TextHeight(titleLabel.Text, 13, Library.FontBold, w, 1.15) or 0
-		local bodyH = contentLabel.Text ~= "" and TextHeight(contentLabel.Text, 12, Library.Font, w, 1.15) or 0
+		local titleW = row.AbsoluteSize.X - textX
+		local bodyW = row.AbsoluteSize.X
+		local titleH = titleLabel.Text ~= "" and TextHeight(titleLabel.Text, 13, Library.FontBold, titleW, 1.15) or 0
+		local bodyH = contentLabel.Text ~= "" and TextHeight(contentLabel.Text, 12, Library.Font, bodyW, 1.15) or 0
 		local gap = (titleH > 0 and bodyH > 0) and 4 or 0
 		titleLabel.Size = UDim2.new(1, -textX, 0, titleH)
-		contentLabel.Size = UDim2.new(1, -textX, 0, bodyH)
-		contentLabel.Position = UDim2.new(0, textX, 0, titleH + gap)
+		contentLabel.Size = UDim2.new(1, 0, 0, bodyH)
+		contentLabel.Position = UDim2.new(0, 0, 0, titleH + gap)
 		row.Size = UDim2.new(1, 0, 0, math.max(16, titleH + gap + bodyH))
 	end
 
@@ -2904,7 +2906,7 @@ function Groupbox:AddParagraph(a, b, c)
 			iconInst.Position = UDim2.new(0, 0, 0, 1)
 		end
 		textX = iconInst and 20 or 0
-		-- +2 on Y so the bold title sits flush with the icon
+		-- +2 on Y so only the bold title sits flush with the icon
 		titleLabel.Position = UDim2.new(0, textX, 0, iconInst and 2 or 0)
 		measure()
 	end
@@ -2932,7 +2934,6 @@ function Groupbox:AddParagraph(a, b, c)
 	end
 	return obj
 end
-
 	--------------------------------------------------------------------
 	-- Divider
 	--------------------------------------------------------------------
