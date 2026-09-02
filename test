@@ -2708,58 +2708,122 @@ New("UIGradient", {
 	end
 	Groupbox.Row = Row
 
-	--------------------------------------------------------------------
-	-- Label
-	--------------------------------------------------------------------
-	function Groupbox:AddLabel(a, b)
-		local text, wrap, iconName
-		if typeof(a) == "table" then
-			text = a.Text
-			wrap = a.Wrap
-			iconName = a.Icon
-		else
-			text = a
-			wrap = b
-		end
-
-		local row = Row(16, wrap and true or false)
-		local textX = 0
-		if iconName then
-			local ic = Library:CreateIcon(row, iconName, 14, "Accent")
-			ic.AnchorPoint = Vector2.new(0, 0)
-			ic.Position = UDim2.new(0, 0, 0, 1)
-			textX = 20
-		end
-
-		local lbl = New("TextLabel", {
-			Position = UDim2.new(0, textX, 0, 0),
-			Size = UDim2.new(1, -textX, 0, 16),
-			BackgroundTransparency = 1,
-			Font = Library.FontBold,
-			Text = tostring(text or ""),
-			TextColor3 = Library.Scheme.SubText,
-			TextSize = 12,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Top,
-			TextWrapped = wrap and true or false,
-			LineHeight = 1.2,
-			Parent = row,
-		})
-		if wrap then
-			lbl.AutomaticSize = Enum.AutomaticSize.Y
-		end
-		Library:Register(lbl, "TextColor3", "SubText")
-
-		local obj = { Type = "Label" }
-		function obj:SetText(t)
-			lbl.Text = tostring(t)
-		end
-		function obj:SetColor(key)
-			lbl.TextColor3 = Library.Scheme[key] or Library.Scheme.SubText
-		end
-		obj.Instance = lbl
-		return obj
+--------------------------------------------------------------------
+-- Label (Rewritten for perfect wrap auto-sizing)
+--------------------------------------------------------------------
+function Groupbox:AddLabel(a, b)
+	local text, wrap, iconName
+	if typeof(a) == "table" then
+		text = a.Text
+		wrap = a.Wrap
+		iconName = a.Icon
+	else
+		text = a
+		wrap = b
 	end
+	
+	local row = Row(0, true)
+	
+	local lbl = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = tostring(text or ""),
+		TextColor3 = Library.Scheme.SubText,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = wrap and true or false,
+		LineHeight = 1.2,
+		Parent = row,
+	})
+	Library:Register(lbl, "TextColor3", "SubText")
+	
+	-- keep row height synced with text wrap so the card never clips
+	local function syncHeight()
+		row.Size = UDim2.new(1, 0, 0, math.max(16, lbl.AbsoluteSize.Y))
+	end
+	lbl:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncHeight)
+	task.spawn(syncHeight)
+
+	local obj = { Type = "Label", Instance = lbl }
+	function obj:SetText(t)
+		lbl.Text = tostring(t)
+	end
+	function obj:SetColor(key)
+		lbl.TextColor3 = Library.Scheme[key] or Library.Scheme.SubText
+	end
+	return obj
+end
+
+--------------------------------------------------------------------
+-- Paragraph
+--------------------------------------------------------------------
+function Groupbox:AddParagraph(title, content)
+	local row = Row(0, true)
+	
+	New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 4),
+		Parent = row,
+	})
+
+	local titleLabel = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Font = Library.FontBold,
+		Text = tostring(title or ""),
+		TextColor3 = Library.Scheme.Text,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		LayoutOrder = 1,
+		Parent = row,
+	})
+	Library:Register(titleLabel, "TextColor3", "Text")
+
+	local contentLabel = New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Font = Library.Font,
+		Text = tostring(content or ""),
+		TextColor3 = Library.Scheme.SubText,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		LineHeight = 1.25,
+		LayoutOrder = 2,
+		Parent = row,
+	})
+	Library:Register(contentLabel, "TextColor3", "SubText")
+
+	-- sync row height to the list layout's absolute content size
+	local listLayout = row:FindFirstChildWhichIsA("UIListLayout")
+	local function syncHeight()
+		row.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y)
+	end
+	listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncHeight)
+	task.spawn(syncHeight)
+
+	local obj = { Type = "Paragraph", Instance = row }
+	function obj:SetTitle(t)
+		titleLabel.Text = tostring(t)
+	end
+	function obj:SetContent(c)
+		contentLabel.Text = tostring(c)
+	end
+	function obj:SetText(t, c)
+		if t then titleLabel.Text = tostring(t) end
+		if c then contentLabel.Text = tostring(c) end
+	end
+	return obj
+end
 
 	--------------------------------------------------------------------
 	-- Divider
