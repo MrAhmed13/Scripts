@@ -2712,22 +2712,53 @@ New("UIGradient", {
 	Groupbox.Row = Row
 
 --------------------------------------------------------------------
--- Label (Rewritten for perfect wrap auto-sizing)
+-- Label (array form first; content string delegates to Paragraph)
 --------------------------------------------------------------------
-function Groupbox:AddLabel(a, b)
+function Groupbox:AddLabel(a, b, c)
+	-- paragraph-shaped calls: {"title", "content", "icon"} or {Content=...}
+	if typeof(a) == "table" then
+		if a[1] ~= nil and typeof(a[2]) == "string" then
+			return Groupbox:AddParagraph(a[1], a[2], a[3])
+		end
+		if a[1] == nil and (a.Content ~= nil or a.Description ~= nil) then
+			return Groupbox:AddParagraph(a.Title or a.Text, a.Content or a.Description, a.Icon)
+		end
+	end
+
 	local text, wrap, iconName
 	if typeof(a) == "table" then
-		text = a.Text
-		wrap = a.Wrap
-		iconName = a.Icon
+		if a[1] ~= nil then
+			-- {"text", true, "icon"} or {"text", "icon", true}
+			text = a[1]
+			if typeof(a[2]) == "boolean" then
+				wrap = a[2]
+				iconName = a[3]
+			else
+				iconName = a[2]
+				wrap = a[3]
+			end
+		else
+			text = a.Text
+			wrap = a.Wrap
+			iconName = a.Icon
+		end
 	else
 		text = a
-		wrap = b
+		if typeof(b) == "boolean" then
+			wrap = b
+			iconName = c
+		else
+			iconName = b
+			wrap = c
+		end
 	end
-	
-	local row = Row(0, true)
-	
+
+	local row = Row(0)
+	local textX = 0
+	local iconInst = nil
+
 	local lbl = New("TextLabel", {
+		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
@@ -2742,12 +2773,29 @@ function Groupbox:AddLabel(a, b)
 		Parent = row,
 	})
 	Library:Register(lbl, "TextColor3", "SubText")
-	
-	-- keep row height synced with text wrap so the card never clips
+
 	local function syncHeight()
 		row.Size = UDim2.new(1, 0, 0, math.max(16, lbl.AbsoluteSize.Y))
 	end
+
+	local function applyIcon(name)
+		if iconInst then
+			iconInst:Destroy()
+			iconInst = nil
+		end
+		if name then
+			iconInst = Library:CreateIcon(row, name, 14, "Accent")
+			iconInst.AnchorPoint = Vector2.new(0, 0)
+			iconInst.Position = UDim2.new(0, 0, 0, 1)
+		end
+		textX = iconInst and 20 or 0
+		lbl.Position = UDim2.new(0, textX, 0, 0)
+		lbl.Size = UDim2.new(1, -textX, 0, 0)
+		syncHeight()
+	end
+
 	lbl:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncHeight)
+	applyIcon(iconName)
 	task.spawn(syncHeight)
 
 	local obj = { Type = "Label", Instance = lbl }
@@ -2757,23 +2805,39 @@ function Groupbox:AddLabel(a, b)
 	function obj:SetColor(key)
 		lbl.TextColor3 = Library.Scheme[key] or Library.Scheme.SubText
 	end
+	function obj:SetIcon(name)
+		applyIcon(name)
+	end
 	return obj
 end
 
 --------------------------------------------------------------------
--- Paragraph
+-- Paragraph ({"title", "content", "icon"} straight positional)
 --------------------------------------------------------------------
-function Groupbox:AddParagraph(title, content)
-	local row = Row(0, true)
-	
-	New("UIListLayout", {
-		FillDirection = Enum.FillDirection.Vertical,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Padding = UDim.new(0, 4),
-		Parent = row,
-	})
+function Groupbox:AddParagraph(a, b, c)
+	local title, content, iconName
+	if typeof(a) == "table" then
+		if a[1] ~= nil then
+			title = a[1]
+			content = a[2] or ""
+			iconName = a[3]
+		else
+			title = a.Title or a.Text
+			content = a.Content or a.Description or ""
+			iconName = a.Icon
+		end
+	else
+		title = a
+		content = b or ""
+		iconName = c
+	end
+
+	local row = Row(0)
+	local textX = 0
+	local iconInst = nil
 
 	local titleLabel = New("TextLabel", {
+		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
@@ -2784,12 +2848,12 @@ function Groupbox:AddParagraph(title, content)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		TextWrapped = true,
-		LayoutOrder = 1,
 		Parent = row,
 	})
 	Library:Register(titleLabel, "TextColor3", "Text")
 
 	local contentLabel = New("TextLabel", {
+		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
@@ -2801,29 +2865,53 @@ function Groupbox:AddParagraph(title, content)
 		TextYAlignment = Enum.TextYAlignment.Top,
 		TextWrapped = true,
 		LineHeight = 1.25,
-		LayoutOrder = 2,
 		Parent = row,
 	})
 	Library:Register(contentLabel, "TextColor3", "SubText")
 
-	-- sync row height to the list layout's absolute content size
-	local listLayout = row:FindFirstChildWhichIsA("UIListLayout")
-	local function syncHeight()
-		row.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y)
+	local function syncLayout()
+		local titleH = titleLabel.AbsoluteSize.Y
+		local bodyH = contentLabel.AbsoluteSize.Y
+		local gap = (titleH > 0 and bodyH > 0) and 4 or 0
+		contentLabel.Position = UDim2.new(0, textX, 0, titleH + gap)
+		row.Size = UDim2.new(1, 0, 0, math.max(16, titleH + gap + bodyH))
 	end
-	listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncHeight)
-	task.spawn(syncHeight)
+
+	local function applyIcon(name)
+		if iconInst then
+			iconInst:Destroy()
+			iconInst = nil
+		end
+		if name then
+			iconInst = Library:CreateIcon(row, name, 14, "Accent")
+			iconInst.AnchorPoint = Vector2.new(0, 0)
+			iconInst.Position = UDim2.new(0, 0, 0, 1)
+		end
+		textX = iconInst and 20 or 0
+		titleLabel.Position = UDim2.new(0, textX, 0, 0)
+		titleLabel.Size = UDim2.new(1, -textX, 0, 0)
+		contentLabel.Size = UDim2.new(1, -textX, 0, 0)
+		syncLayout()
+	end
+
+	titleLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncLayout)
+	contentLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncLayout)
+	applyIcon(iconName)
+	task.spawn(syncLayout)
 
 	local obj = { Type = "Paragraph", Instance = row }
 	function obj:SetTitle(t)
 		titleLabel.Text = tostring(t)
 	end
-	function obj:SetContent(c)
-		contentLabel.Text = tostring(c)
+	function obj:SetContent(ct)
+		contentLabel.Text = tostring(ct)
 	end
-	function obj:SetText(t, c)
+	function obj:SetText(t, ct)
 		if t then titleLabel.Text = tostring(t) end
-		if c then contentLabel.Text = tostring(c) end
+		if ct then contentLabel.Text = tostring(ct) end
+	end
+	function obj:SetIcon(name)
+		applyIcon(name)
 	end
 	return obj
 end
