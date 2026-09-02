@@ -414,6 +414,7 @@ local function Shadow(parent, spread, strength, radius)
 		})
 		Corner(radius + grow, layer)
 		Library:Register(layer, "BackgroundColor3", "Shadow")
+		layer:SetAttribute("VertexBaseTransparency", layer.BackgroundTransparency)
 		i = i + 1
 	end
 	return holder
@@ -1764,6 +1765,8 @@ function Library:CreateWindow(opts)
 
 	local shadow = Shadow(Wrapper, 6, 0.8, Library.Radius.Window)
 	local glow = Glow(Wrapper, Library.Radius.Window, 0.93, 5)
+    	Window.Shadow = shadow
+	    Window.Glow = glow
 	-- The shadow's layer set is static, so capture it once instead of
 	-- allocating a fresh children array on every drag lift and drop.
 	local shadowLayers = shadow:GetChildren()
@@ -4899,12 +4902,22 @@ function Library:SetVisible(state)
 	if not Library.Toggled then
 		Library:CloseAllPopups()
 	end
-
 	local i = 1
 	while i <= #Library.Windows do
 		local w = Library.Windows[i]
 		if Library.Toggled then
 			w.Wrapper.Visible = true
+			if w.Glow then
+				w.Glow.BackgroundTransparency = 0.93
+			end
+			if w.Shadow then
+				local layers = w.Shadow:GetChildren()
+				local j = 1
+				while j <= #layers do
+					layers[j].BackgroundTransparency = layers[j]:GetAttribute("VertexBaseTransparency") or layers[j].BackgroundTransparency
+					j = j + 1
+				end
+			end
 			w.Scale.Scale = 0.94
 			TweenRaw(w.Scale, Anim.SoftSpring, { Scale = 1 })
 			if w.IsGroup then
@@ -4913,6 +4926,17 @@ function Library:SetVisible(state)
 			end
 		else
 			TweenRaw(w.Scale, Anim.Fast, { Scale = 0.94 })
+			if w.Glow then
+				TweenRaw(w.Glow, Anim.Fast, { BackgroundTransparency = 1 })
+			end
+			if w.Shadow then
+				local layers = w.Shadow:GetChildren()
+				local j = 1
+				while j <= #layers do
+					TweenRaw(layers[j], Anim.Fast, { BackgroundTransparency = 1 })
+					j = j + 1
+				end
+			end
 			if w.IsGroup then
 				TweenRaw(w.Main, Anim.Fast, { GroupTransparency = 1 })
 				local wrapper = w.Wrapper
